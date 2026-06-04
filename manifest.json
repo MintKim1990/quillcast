@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "YT Repurpose (dev)",
+  "version": "0.0.1",
+  "description": "유튜브 영상 자막을 텍스트 자산으로 변환 — P0 스파이크(자막 추출 검증)",
+  "host_permissions": ["https://www.youtube.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["inject.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["content.js"],
+      "css": ["panel.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
