@@ -1,0 +1,7 @@
+{
+  "name": "quillcast",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "유튜브 영상 자막을 텍스트 자산(뉴스레터·블로그·트윗·설명란)으로 변환하는 크롬 익스텐션 + Vercel 서버함수"
+}

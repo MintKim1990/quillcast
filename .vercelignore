@@ -1,0 +1,16 @@
+# Vercel 배포 제외 — api/ 함수와 package.json만 배포한다.
+# ★ scratch/ 에는 비밀키(key.local.txt)가 있으므로 절대 배포 금지 (배포되면 URL로 공개 노출됨).
+scratch/
+
+# 익스텐션 정적파일은 Chrome에 설치되는 것이지 서버가 서빙할 필요 없음.
+content.js
+inject.js
+background.js
+manifest.json
+panel.css
+
+# 문서 / 로컬 환경변수
+*.md
+.env
+.env.*
+*.local

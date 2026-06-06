@@ -1,6 +1,8 @@
 // content.js — ISOLATED world
-// 화면에 버튼 + 패널 UI를 띄우고, inject.js(MAIN world)에 timedtext 요청을 보낸다.
-// timedtext가 막히면(빈 응답) DOM 자막 패널을 직접 열어 스크랩하는 fallback을 수행한다.
+// 화면에 버튼(자막 / 뉴스레터 / 블로그)을 띄우고:
+//  1) 자막 추출: inject.js(MAIN world)의 timedtext → 막히면 DOM 패널 스크랩 fallback
+//  2) 변환: 추출한 자막 + 영상 제목/채널 + 포맷을 background.js로 보내 서버(Gemini) 결과를 받아 표시
+// background로 위임하는 이유: content.js는 youtube.com 컨텍스트라 외부 서버 호출이 CORS에 막힘.
 
 (function () {
   if (window.__ytrLoaded) return;
@@ -8,15 +10,32 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  function ensureButton() {
-    if (document.getElementById("ytr-btn")) return;
-    const btn = document.createElement("button");
-    btn.id = "ytr-btn";
-    btn.textContent = "📝 자막 가져오기";
-    btn.addEventListener("click", onClick);
-    document.body.appendChild(btn);
+  // ── UI: 버튼 툴바 ─────────────────────────────────────────────────────
+  function ensureToolbar() {
+    if (document.getElementById("ytr-bar-fixed")) return;
+    const wrap = document.createElement("div");
+    wrap.id = "ytr-bar-fixed";
+
+    const mk = (id, label, fn) => {
+      const b = document.createElement("button");
+      b.id = id;
+      b.className = "ytr-fab";
+      b.textContent = label;
+      b.addEventListener("click", fn);
+      return b;
+    };
+
+    wrap.appendChild(mk("ytr-btn-raw", "📝 자막", onRawClick));
+    wrap.appendChild(
+      mk("ytr-btn-news", "📰 뉴스레터", () => onGenerate("newsletter", "뉴스레터"))
+    );
+    wrap.appendChild(
+      mk("ytr-btn-blog", "✍️ 블로그", () => onGenerate("blog", "블로그"))
+    );
+    document.body.appendChild(wrap);
   }
 
+  // ── UI: 결과 패널 ─────────────────────────────────────────────────────
   function ensurePanel() {
     let panel = document.getElementById("ytr-panel");
     if (panel) return panel;
@@ -29,7 +48,7 @@
 
     const title = document.createElement("span");
     title.id = "ytr-title";
-    title.textContent = "자막";
+    title.textContent = "Quillcast";
 
     const copy = document.createElement("button");
     copy.id = "ytr-copy";
@@ -67,49 +86,124 @@
     panel.querySelector("#ytr-text").value = content;
   }
 
-  function onClick() {
-    show("자막 가져오는 중... (1/2 timedtext)", "자막");
-    window.postMessage({ type: "YTR_GET_TRANSCRIPT" }, "*");
+  // ── 영상 제목 / 채널 추출 (Gemini 맥락 주입용) ────────────────────────
+  function getVideoMeta() {
+    const title =
+      document.querySelector("h1.ytd-watch-metadata")?.innerText?.trim() ||
+      document.querySelector("#title h1")?.innerText?.trim() ||
+      document.title.replace(/ - YouTube$/, "").trim() ||
+      "";
+    const channel =
+      document.querySelector("ytd-channel-name #text a")?.textContent?.trim() ||
+      document.querySelector("#owner #channel-name a")?.textContent?.trim() ||
+      document.querySelector("ytd-channel-name a")?.textContent?.trim() ||
+      "";
+    return { title, channel };
   }
 
-  // ── timedtext 결과 수신 ───────────────────────────────────────────────
-  window.addEventListener("message", async (e) => {
-    if (e.source !== window) return;
-    if (e.data?.type !== "YTR_TRANSCRIPT") return;
-    const d = e.data;
+  // ── 자막 추출 (Promise) ───────────────────────────────────────────────
+  // inject.js에 timedtext 요청 → 응답이 ok면 그 텍스트, 실패/무응답이면 DOM 스크랩 fallback.
+  function getTranscript() {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (val) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener("message", onMsg);
+        clearTimeout(timer);
+        resolve(val);
+      };
 
-    if (d.ok) {
-      const t = d.text || "";
+      const onMsg = async (e) => {
+        if (e.source !== window || e.data?.type !== "YTR_TRANSCRIPT") return;
+        const d = e.data;
+        if (d.ok && d.text) {
+          finish({
+            ok: true,
+            text: d.text,
+            via: `timedtext/${d.lang}`,
+            count: d.count,
+          });
+          return;
+        }
+        // timedtext 실패 → DOM 스크랩
+        const r = await scrapeFromDOM();
+        finish(
+          r.ok
+            ? { ok: true, text: r.text, via: "DOM", count: r.count }
+            : { ok: false, reason: `timedtext:${d.reason} / DOM:${r.reason}` }
+        );
+      };
+      window.addEventListener("message", onMsg);
+
+      // inject.js가 끝내 무응답이면 6초 후 DOM 스크랩으로 직접 시도
+      const timer = setTimeout(async () => {
+        const r = await scrapeFromDOM();
+        finish(
+          r.ok
+            ? { ok: true, text: r.text, via: "DOM(timeout)", count: r.count }
+            : { ok: false, reason: `timedtext 무응답 / DOM:${r.reason}` }
+        );
+      }, 6000);
+
+      window.postMessage({ type: "YTR_GET_TRANSCRIPT" }, "*");
+    });
+  }
+
+  // ── 동작: 자막만 보기 (디버그/원문 확인용) ────────────────────────────
+  async function onRawClick() {
+    show("자막 가져오는 중…", "자막");
+    const r = await getTranscript();
+    if (r.ok)
       show(
-        `[방식: timedtext / 언어: ${d.lang} / 세그먼트: ${d.count} / 글자수: ${t.length}]\n\n${t}`,
+        `[${r.via} / ${r.count}세그먼트 / ${r.text.length}자]\n\n${r.text}`,
         "자막 ✓"
       );
+    else show(`자막 추출 실패:\n${r.reason}`, "실패");
+  }
+
+  // ── 동작: 자막 → 서버(Gemini) → 변환 결과 표시 ───────────────────────
+  async function onGenerate(format, label) {
+    show(`자막 가져오는 중… (다음: ${label} 생성)`, label);
+    const r = await getTranscript();
+    if (!r.ok) {
+      show(`자막 추출 실패:\n${r.reason}`, "실패");
       return;
     }
-
-    // timedtext 실패 → DOM 패널 스크랩 fallback
     show(
-      `timedtext 실패 (${d.reason || "?"}).\nDOM 자막 패널 스크랩 시도 중... (2/2)`,
-      "fallback 중"
+      `자막 ${r.text.length}자 확보 (${r.via}).\n${label} 생성 중… (서버 → Gemini)`,
+      `${label} 생성 중`
     );
-    const r = await scrapeFromDOM();
-    if (r.ok) {
-      const t = r.text || "";
-      show(
-        `[방식: DOM 스크랩 / 세그먼트: ${r.count} / 글자수: ${t.length}]\n\n${t}`,
-        "자막 ✓ (DOM)"
-      );
-    } else {
-      show(
-        `둘 다 실패했어요.\n- timedtext: ${d.reason || "?"}\n- DOM 스크랩: ${r.reason || "?"}\n\n(이 메시지를 그대로 개발자에게 알려주세요)`,
-        "실패"
-      );
-    }
-  });
+
+    const meta = getVideoMeta();
+    chrome.runtime.sendMessage(
+      {
+        type: "YTR_GENERATE",
+        format,
+        transcript: r.text,
+        title: meta.title,
+        channel: meta.channel,
+      },
+      (resp) => {
+        if (chrome.runtime.lastError) {
+          show(
+            `확장 통신 오류:\n${chrome.runtime.lastError.message}`,
+            "실패"
+          );
+          return;
+        }
+        if (!resp?.ok) {
+          show(`${label} 생성 실패:\n${resp?.error || "알 수 없는 오류"}`, "실패");
+          return;
+        }
+        show(resp.text, `${label} ✓`);
+      }
+    );
+  }
 
   // ── DOM 자막 패널 스크랩 fallback ─────────────────────────────────────
   // 유튜브 설명란의 "스크립트 표시" 버튼을 눌러 transcript 패널을 연 뒤,
-  // 렌더된 세그먼트(ytd-transcript-segment-renderer)의 텍스트를 긁는다.
+  // 렌더된 세그먼트(transcript-segment-view-model 신/구)의 텍스트를 긁는다.
   async function scrapeFromDOM() {
     try {
       const SEG_SEL =
@@ -138,7 +232,6 @@
       }
 
       // 3) transcript 세그먼트 렌더 대기 (최대 ~9초)
-      //    유튜브 신(transcript-segment-view-model)/구(ytd-transcript-segment-renderer) 컴포넌트 모두 지원
       let segs = [];
       for (let i = 0; i < 30; i++) {
         segs = document.querySelectorAll(SEG_SEL);
@@ -147,13 +240,11 @@
       }
       if (!segs.length) return { ok: false, reason: "NO_SEGMENTS" };
 
-      // 4) 텍스트 스크랩
-      //    구버전: .segment-text 클래스 / 신버전: 전용 클래스 없음 → innerText에서 앞 타임스탬프 제거
+      // 4) 텍스트 스크랩 (앞에 붙는 타임스탬프 제거)
       const lines = [...segs]
         .map((s) => {
           const el = s.querySelector(".segment-text");
           let txt = el ? el.textContent : s.innerText || "";
-          // 세그먼트마다 붙는 타임스탬프 제거 (UI 언어 따라 "1:20" 또는 "1분 4초"/"8초")
           txt = txt
             .replace(/\d+\s*분(?:\s*\d+\s*초)?/g, " ") // "1분 4초" / "3분"
             .replace(/\d+\s*초/g, " ") // "8초"
@@ -205,7 +296,7 @@
   }
 
   // YouTube는 SPA라 페이지 전환 시 버튼이 사라질 수 있어 계속 보장
-  ensureButton();
-  const obs = new MutationObserver(() => ensureButton());
+  ensureToolbar();
+  const obs = new MutationObserver(() => ensureToolbar());
   obs.observe(document.body, { childList: true, subtree: true });
 })();

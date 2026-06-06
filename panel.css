@@ -1,8 +1,12 @@
-#ytr-btn {
+#ytr-bar-fixed {
   position: fixed;
   bottom: 20px;
   right: 20px;
   z-index: 99999;
+  display: flex;
+  gap: 8px;
+}
+.ytr-fab {
   padding: 10px 14px;
   background: #cc0000;
   color: #fff;
@@ -13,8 +17,14 @@
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
-#ytr-btn:hover {
+.ytr-fab:hover {
   background: #a00;
+}
+#ytr-btn-raw {
+  background: #444;
+}
+#ytr-btn-raw:hover {
+  background: #222;
 }
 
 #ytr-panel {
