@@ -1,13 +1,10 @@
-#ytr-bar-fixed {
+/* 플로팅 런처 버튼 */
+#ytr-launch {
   position: fixed;
   bottom: 20px;
   right: 20px;
   z-index: 99999;
-  display: flex;
-  gap: 8px;
-}
-.ytr-fab {
-  padding: 10px 14px;
+  padding: 10px 16px;
   background: #cc0000;
   color: #fff;
   border: none;
@@ -17,23 +14,18 @@
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
-.ytr-fab:hover {
+#ytr-launch:hover {
   background: #a00;
 }
-#ytr-btn-raw {
-  background: #444;
-}
-#ytr-btn-raw:hover {
-  background: #222;
-}
 
+/* 패널 */
 #ytr-panel {
   position: fixed;
   bottom: 70px;
   right: 20px;
   z-index: 99999;
-  width: 400px;
-  max-height: 65vh;
+  width: 420px;
+  max-height: 72vh;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 10px;
@@ -43,6 +35,7 @@
   overflow: hidden;
 }
 
+/* 헤더 */
 #ytr-bar {
   display: flex;
   align-items: center;
@@ -54,10 +47,11 @@
 #ytr-title {
   flex: 1;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: #111;
 }
 #ytr-copy,
+#ytr-regen,
 #ytr-close {
   border: 1px solid #ccc;
   background: #fff;
@@ -73,16 +67,92 @@
   padding: 4px 6px;
 }
 
+/* 포맷 선택 바 */
+#ytr-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #fafafa;
+  border-bottom: 1px solid #eee;
+}
+.ytr-fmt {
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #222;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.ytr-fmt:hover {
+  border-color: #cc0000;
+  color: #cc0000;
+}
+.ytr-fmt.active {
+  background: #cc0000;
+  color: #fff;
+  border-color: #cc0000;
+}
+.ytr-fmt:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 출력 언어 드롭다운 */
+#ytr-lang {
+  margin-left: auto;
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #222;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+#ytr-lang:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 상태 / 로딩 줄 */
+#ytr-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #555;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+}
+.ytr-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid #e0e0e0;
+  border-top-color: #cc0000;
+  border-radius: 50%;
+  animation: ytr-spin 0.7s linear infinite;
+}
+@keyframes ytr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 결과 */
 #ytr-text {
   flex: 1;
   width: 100%;
-  min-height: 320px;
+  min-height: 300px;
   box-sizing: border-box;
   border: none;
   resize: none;
-  padding: 10px;
-  font-size: 12px;
-  line-height: 1.6;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.7;
   font-family: -apple-system, "Segoe UI", sans-serif;
   color: #111;
   background: #fff;

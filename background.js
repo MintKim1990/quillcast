@@ -21,6 +21,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           title: msg.title,
           channel: msg.channel,
           format: msg.format,
+          lang: msg.lang,
         }),
       });
       const data = await res.json().catch(() => ({}));
