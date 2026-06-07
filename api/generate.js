@@ -128,15 +128,12 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST")
-    return res.status(405).json({ ok: false, error: "POST만 허용" });
+    return res.status(405).json({ ok: false, code: "bad_request" });
 
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     console.error("[generate] OPENAI_API_KEY 미설정");
-    return res.status(500).json({
-      ok: false,
-      error: "일시적인 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
-    });
+    return res.status(500).json({ ok: false, code: "config" });
   }
 
   // 본문 파싱 (Vercel은 JSON이면 req.body 자동 파싱하지만 문자열로 올 때도 방어)
@@ -151,11 +148,9 @@ export default async function handler(req, res) {
   let { transcript, title, channel, format, lang } = body || {};
 
   if (!transcript || typeof transcript !== "string")
-    return res.status(400).json({ ok: false, error: "transcript 필요" });
+    return res.status(400).json({ ok: false, code: "bad_request" });
   if (!FORMATS[format])
-    return res
-      .status(400)
-      .json({ ok: false, error: "알 수 없는 format: " + format });
+    return res.status(400).json({ ok: false, code: "bad_request" });
   if (transcript.length > MAX_TRANSCRIPT)
     transcript = transcript.slice(0, MAX_TRANSCRIPT);
 
@@ -166,15 +161,8 @@ ${transcript}`;
 
   const result = await callOpenAI(prompt, key);
   if (!result.ok) {
-    // 사용자엔 공급자/내부사정 없는 일반 문구만 (진짜 원인은 callGemini가 서버 로그에 남김)
-    const MSG = {
-      busy: "지금 요청이 몰려 생성에 실패했어요. 잠시 후 다시 시도해주세요.",
-      empty: "이 영상은 글로 변환하지 못했어요. 다른 영상으로 시도해보세요.",
-      upstream: "생성 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
-    };
-    return res
-      .status(502)
-      .json({ ok: false, error: MSG[result.code] || MSG.upstream });
+    // 사용자 문구는 클라이언트가 code로 KR/EN 현지화. 진짜 원인은 callOpenAI가 서버 로그에 남김.
+    return res.status(502).json({ ok: false, code: result.code || "upstream" });
   }
   return res.status(200).json({ ok: true, text: result.text });
 }

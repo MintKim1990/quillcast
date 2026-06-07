@@ -1,6 +1,6 @@
 // content.js — ISOLATED world
 // 플로팅 런처 버튼 1개 → 패널 열기. 패널 안에서 포맷(뉴스레터/블로그/트윗/설명란/원본)을 골라 생성.
-// 흐름: 자막 추출(timedtext → 실패 시 DOM 스크랩) → background.js → 서버(Gemini) → 패널 표시.
+// 흐름: 자막 추출(timedtext → 실패 시 DOM 스크랩) → background.js → 서버(LLM) → 패널 표시.
 // 자막은 영상당 1회만 추출해 캐시 → 포맷 전환 시 재추출 없이 변환만 다시 한다.
 
 (function () {
@@ -9,16 +9,87 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // ── UI 언어 (브라우저 locale 자동: 한국어면 한국어, 그 외엔 영어) ───────
+  const UI = (navigator.language || "").toLowerCase().startsWith("ko")
+    ? "ko"
+    : "en";
+  const STR = {
+    ko: {
+      launcher: "✍️ Quillcast",
+      copy: "복사",
+      copied: "복사됨!",
+      redo: "↻ 다시",
+      redoTitle: "현재 포맷을 새로 생성",
+      langTitle: "출력 언어",
+      placeholder: "위에서 포맷을 골라 생성하세요.",
+      fetching: "자막 가져오는 중…",
+      langAuto: "🌐 자동(영상 언어)",
+      fmt: {
+        newsletter: "📰 뉴스레터",
+        blog: "✍️ 블로그",
+        tweets: "🐦 트윗",
+        description: "📄 설명란",
+        raw: "📝 원본자막",
+      },
+      errors: {
+        busy: "지금 요청이 몰려 생성에 실패했어요. 잠시 후 다시 시도해주세요.",
+        empty: "이 영상은 글로 변환하지 못했어요. 다른 영상으로 시도해보세요.",
+        upstream: "생성 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
+        config: "일시적인 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
+        bad_request: "요청을 처리할 수 없어요. 페이지를 새로고침해보세요.",
+        comms: "확장과 통신에 실패했어요. 페이지를 새로고침해보세요.",
+        no_response: "서버 응답이 없어요. 잠시 후 다시 시도해주세요.",
+      },
+      transcriptFail: (r) => `자막 추출 실패: ${r}`,
+      rawMeta: (via, count, len) => `원본 자막 · ${via} / ${count}세그먼트 / ${len}자`,
+      cached: (label) => `${label} · 저장된 결과 (새로 만들려면 ↻ 다시)`,
+      generating: (label) => `${label} 생성 중…`,
+      done: (label, inLen, outLen) => `${label} 완료 ✓ · 자막 ${inLen}자 → ${outLen}자`,
+    },
+    en: {
+      launcher: "✍️ Quillcast",
+      copy: "Copy",
+      copied: "Copied!",
+      redo: "↻ Redo",
+      redoTitle: "Regenerate current format",
+      langTitle: "Output language",
+      placeholder: "Pick a format above to generate.",
+      fetching: "Fetching transcript…",
+      langAuto: "🌐 Auto (video language)",
+      fmt: {
+        newsletter: "📰 Newsletter",
+        blog: "✍️ Blog",
+        tweets: "🐦 Tweets",
+        description: "📄 Description",
+        raw: "📝 Transcript",
+      },
+      errors: {
+        busy: "Too many requests right now. Please try again in a moment.",
+        empty: "Couldn't turn this video into text. Try another video.",
+        upstream: "Something went wrong while generating. Please try again.",
+        config: "A temporary error occurred. Please try again.",
+        bad_request: "Couldn't process the request. Try refreshing the page.",
+        comms: "Failed to reach the extension. Try refreshing the page.",
+        no_response: "No response from the server. Please try again.",
+      },
+      transcriptFail: (r) => `Transcript failed: ${r}`,
+      rawMeta: (via, count, len) => `Transcript · ${via} / ${count} segments / ${len} chars`,
+      cached: (label) => `${label} · cached (↻ Redo to regenerate)`,
+      generating: (label) => `Generating ${label}…`,
+      done: (label, inLen, outLen) => `${label} done ✓ · ${inLen} → ${outLen} chars`,
+    },
+  }[UI];
+
   const FORMATS = [
-    { fmt: "newsletter", label: "📰 뉴스레터" },
-    { fmt: "blog", label: "✍️ 블로그" },
-    { fmt: "tweets", label: "🐦 트윗" },
-    { fmt: "description", label: "📄 설명란" },
-    { fmt: "raw", label: "📝 원본자막" },
+    { fmt: "newsletter", label: STR.fmt.newsletter },
+    { fmt: "blog", label: STR.fmt.blog },
+    { fmt: "tweets", label: STR.fmt.tweets },
+    { fmt: "description", label: STR.fmt.description },
+    { fmt: "raw", label: STR.fmt.raw },
   ];
 
   const LANGS = [
-    { v: "auto", label: "🌐 자동(영상 언어)" },
+    { v: "auto", label: STR.langAuto },
     { v: "ko", label: "한국어" },
     { v: "en", label: "English" },
     { v: "ja", label: "日本語" },
@@ -45,7 +116,7 @@
     if (document.getElementById("ytr-launch")) return;
     const b = document.createElement("button");
     b.id = "ytr-launch";
-    b.textContent = "✍️ Quillcast";
+    b.textContent = STR.launcher;
     b.addEventListener("click", openPanel);
     document.body.appendChild(b);
   }
@@ -66,19 +137,19 @@
     title.textContent = "Quillcast";
     const copy = document.createElement("button");
     copy.id = "ytr-copy";
-    copy.textContent = "복사";
+    copy.textContent = STR.copy;
     copy.onclick = () => {
       const ta = document.getElementById("ytr-text");
       if (!ta.value) return;
       ta.select();
       document.execCommand("copy");
-      copy.textContent = "복사됨!";
-      setTimeout(() => (copy.textContent = "복사"), 1200);
+      copy.textContent = STR.copied;
+      setTimeout(() => (copy.textContent = STR.copy), 1200);
     };
     const regen = document.createElement("button");
     regen.id = "ytr-regen";
-    regen.textContent = "↻ 다시";
-    regen.title = "현재 포맷을 새로 생성";
+    regen.textContent = STR.redo;
+    regen.title = STR.redoTitle;
     regen.onclick = () => {
       if (current && current.fmt !== "raw")
         runFormat(current.fmt, current.label, true);
@@ -104,7 +175,7 @@
     // 출력 언어 드롭다운 (기본: 영상 언어 자동)
     const langSel = document.createElement("select");
     langSel.id = "ytr-lang";
-    langSel.title = "출력 언어";
+    langSel.title = STR.langTitle;
     for (const L of LANGS) {
       const o = document.createElement("option");
       o.value = L.v;
@@ -129,7 +200,7 @@
     const ta = document.createElement("textarea");
     ta.id = "ytr-text";
     ta.readOnly = true;
-    ta.placeholder = "위에서 포맷을 골라 생성하세요.";
+    ta.placeholder = STR.placeholder;
 
     panel.append(bar, fmts, status, ta);
     document.body.appendChild(panel);
@@ -174,7 +245,7 @@
     const vid = getVideoId();
     if (transcriptCache?.ok && transcriptCache.videoId === vid)
       return transcriptCache;
-    setStatus("자막 가져오는 중…", true);
+    setStatus(STR.fetching, true);
     const r = await getTranscript();
     if (!r.ok) return { ok: false, reason: r.reason };
     transcriptCache = {
@@ -198,16 +269,13 @@
     try {
       const t = await ensureTranscript();
       if (!t.ok) {
-        setStatus(`자막 추출 실패: ${t.reason}`, false);
+        setStatus(STR.transcriptFail(t.reason), false);
         return;
       }
 
       if (fmt === "raw") {
         ta.value = t.text;
-        setStatus(
-          `원본 자막 · ${t.via} / ${t.count}세그먼트 / ${t.text.length}자`,
-          false
-        );
+        setStatus(STR.rawMeta(t.via, t.count, t.text.length), false);
         return;
       }
 
@@ -215,24 +283,21 @@
       const cacheKey = `${t.videoId}:${fmt}:${lang}`;
       if (!force && outputCache[cacheKey]) {
         ta.value = outputCache[cacheKey];
-        setStatus(`${label} · 저장된 결과 (새로 만들려면 ↻ 다시)`, false);
+        setStatus(STR.cached(label), false);
         return;
       }
 
-      setStatus(`${label} 생성 중…`, true);
+      setStatus(STR.generating(label), true);
       ta.value = "";
       const meta = getVideoMeta();
       const resp = await sendGenerate(fmt, t.text, meta);
       if (!resp.ok) {
-        setStatus(`${label} 생성 실패: ${resp.error}`, false);
+        setStatus(STR.errors[resp.code] || STR.errors.upstream, false);
         return;
       }
       outputCache[cacheKey] = resp.text;
       ta.value = resp.text;
-      setStatus(
-        `${label} 완료 ✓ · 자막 ${t.text.length}자 → ${resp.text.length}자`,
-        false
-      );
+      setStatus(STR.done(label, t.text.length, resp.text.length), false);
     } finally {
       setBusy(false);
     }
@@ -251,13 +316,11 @@
         },
         (resp) => {
           if (chrome.runtime.lastError) {
-            resolve({
-              ok: false,
-              error: "확장 통신 오류: " + chrome.runtime.lastError.message,
-            });
+            console.warn("[quillcast] comms error:", chrome.runtime.lastError.message);
+            resolve({ ok: false, code: "comms" });
             return;
           }
-          resolve(resp || { ok: false, error: "서버 응답 없음" });
+          resolve(resp || { ok: false, code: "no_response" });
         }
       );
     });
