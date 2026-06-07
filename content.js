@@ -27,7 +27,7 @@
   ];
 
   let busy = false;
-  let lang = "auto"; // 출력 언어 (드롭다운)
+  let lang = "auto"; // 출력 언어 기본값 = 영상 언어(auto). 드롭다운에서 언제든 변경.
   let transcriptCache = null; // { videoId, text, via, count, ok }
   const outputCache = {}; // `${videoId}:${format}:${lang}` → 생성된 텍스트 (재방문 시 Gemini 재호출 안 함)
   let current = null; // { fmt, label } — ↻ 다시생성 / 언어변경용
@@ -219,7 +219,7 @@
         return;
       }
 
-      setStatus(`${label} 생성 중… (서버 → Gemini)`, true);
+      setStatus(`${label} 생성 중…`, true);
       ta.value = "";
       const meta = getVideoMeta();
       const resp = await sendGenerate(fmt, t.text, meta);

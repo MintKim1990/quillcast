@@ -1,9 +1,10 @@
 // api/generate.js — Vercel 서버리스 함수
-// 익스텐션이 보낸 (자막 + 영상 메타 + 포맷) → Gemini → 생성된 텍스트 반환.
-// ★ GEMINI_API_KEY는 서버 환경변수에만 존재한다 — 클라이언트(익스텐션)에 절대 노출 X.
+// 익스텐션이 보낸 (자막 + 영상 메타 + 포맷) → LLM → 생성된 텍스트 반환.
+// ★ OPENAI_API_KEY는 서버 환경변수에만 존재한다 — 클라이언트(익스텐션)에 절대 노출 X.
 //   프롬프트는 scratch/generate.mjs(P1.1b 품질 검증 완료)에서 그대로 가져왔다.
+//   모델 교체: OPENAI_MODEL 환경변수로 한 줄에 변경 (gpt-4o-mini → gpt-5-mini 등).
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TRANSCRIPT = 40000; // 자막 글자수 상한 (비용/남용 방지). 초과분은 잘라서 처리.
 
 // ── 클리셰 금지 + 통찰 중심 재구성 룰 (P1.1b 튜닝) ─────────────────────
@@ -68,46 +69,56 @@ export const config = { maxDuration: 30 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Gemini 호출 — 일시 오류(429/500/503)는 자동 재시도 (최대 2회, 1s·2s 백오프)
-async function callGemini(prompt, key) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
-  const RETRYABLE = new Set([429, 500, 503]);
-  let lastErr = "Gemini 호출 실패";
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await sleep(attempt * 1000); // 1s, 2s
+// OpenAI Chat Completions 호출 — 일시 오류(429/500/502/503)는 자동 재시도.
+// 과부하/혼잡 스파이크가 길어도 견디게 지수 백오프 + jitter.
+// 대기: ~0.8s → ~1.6s → ~3.2s → ~5s (cap), 총 5회 시도 = 약 10s 내 (maxDuration 30s 여유).
+// ★ 실패 상세(공급자/HTTP코드)는 서버 로그에만 남기고, 클라이언트엔 내부사정 없는 code만 반환.
+async function callOpenAI(prompt, key) {
+  const url = "https://api.openai.com/v1/chat/completions";
+  const RETRYABLE = new Set([429, 500, 502, 503]);
+  const MAX_ATTEMPTS = 5;
+  let lastDetail = "unknown"; // 서버 로그용 (사용자 미노출)
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      const backoff = Math.min(5000, 800 * 2 ** (attempt - 1)); // 0.8s,1.6s,3.2s,5s cap
+      await sleep(backoff + Math.floor(Math.random() * 400)); // jitter (동시 재시도 분산)
+    }
     let r;
     try {
       r = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [{ role: "user", content: prompt }],
+        }),
       });
     } catch (e) {
-      lastErr = "네트워크 오류: " + (e?.message || e);
+      lastDetail = "network: " + (e?.message || e);
       continue;
     }
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
-      const text =
-        data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") ||
-        "";
-      return text
-        ? { ok: true, text }
-        : { ok: false, error: "빈 응답 (safety 차단 가능)" };
+      const text = data?.choices?.[0]?.message?.content || "";
+      if (text) return { ok: true, text };
+      console.error("[generate] empty response (content filter 가능)");
+      return { ok: false, code: "empty" };
     }
-    if (RETRYABLE.has(r.status)) {
-      lastErr =
-        r.status === 503
-          ? "Gemini 서버 혼잡(503)"
-          : `Gemini 일시 오류(${r.status})`;
-      continue; // 재시도
+    lastDetail = `HTTP ${r.status}: ${data?.error?.message || ""}`;
+    // 크레딧 소진(insufficient_quota)은 재시도해도 안 풀리는 결제 문제 — 즉시 중단 + 운영자용 로그
+    if ((data?.error?.code || data?.error?.type) === "insufficient_quota") {
+      console.error("[generate] BILLING: insufficient_quota — OpenAI 크레딧 충전 필요");
+      return { ok: false, code: "upstream" };
     }
-    return {
-      ok: false,
-      error: `Gemini HTTP ${r.status}: ${data?.error?.message || ""}`,
-    };
+    if (RETRYABLE.has(r.status)) continue; // 재시도
+    console.error("[generate] upstream error:", lastDetail);
+    return { ok: false, code: "upstream" };
   }
-  return { ok: false, error: `${lastErr} — 잠시 후 다시 눌러주세요.` };
+  console.error("[generate] retries exhausted:", lastDetail);
+  return { ok: false, code: "busy" };
 }
 
 export default async function handler(req, res) {
@@ -119,11 +130,14 @@ export default async function handler(req, res) {
   if (req.method !== "POST")
     return res.status(405).json({ ok: false, error: "POST만 허용" });
 
-  const key = process.env.GEMINI_API_KEY;
-  if (!key)
-    return res
-      .status(500)
-      .json({ ok: false, error: "서버에 GEMINI_API_KEY 미설정" });
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    console.error("[generate] OPENAI_API_KEY 미설정");
+    return res.status(500).json({
+      ok: false,
+      error: "일시적인 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
+    });
+  }
 
   // 본문 파싱 (Vercel은 JSON이면 req.body 자동 파싱하지만 문자열로 올 때도 방어)
   let body = req.body;
@@ -150,8 +164,17 @@ export default async function handler(req, res) {
 [영상 자막]
 ${transcript}`;
 
-  const result = await callGemini(prompt, key);
-  if (!result.ok)
-    return res.status(502).json({ ok: false, error: result.error });
-  return res.status(200).json({ ok: true, text: result.text, model: MODEL });
+  const result = await callOpenAI(prompt, key);
+  if (!result.ok) {
+    // 사용자엔 공급자/내부사정 없는 일반 문구만 (진짜 원인은 callGemini가 서버 로그에 남김)
+    const MSG = {
+      busy: "지금 요청이 몰려 생성에 실패했어요. 잠시 후 다시 시도해주세요.",
+      empty: "이 영상은 글로 변환하지 못했어요. 다른 영상으로 시도해보세요.",
+      upstream: "생성 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
+    };
+    return res
+      .status(502)
+      .json({ ok: false, error: MSG[result.code] || MSG.upstream });
+  }
+  return res.status(200).json({ ok: true, text: result.text });
 }

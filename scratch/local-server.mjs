@@ -15,12 +15,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 function loadKey() {
   try {
     const env = readFileSync(join(here, "..", ".env"), "utf8");
-    const m = env.match(/GEMINI_API_KEY\s*=\s*(.+)/);
+    const m = env.match(/OPENAI_API_KEY\s*=\s*(.+)/);
     if (m) return m[1].trim();
   } catch {}
   return readFileSync(join(here, "key.local.txt"), "utf8").trim();
 }
-process.env.GEMINI_API_KEY = loadKey();
+process.env.OPENAI_API_KEY = loadKey();
 
 const { default: handler } = await import("../api/generate.js");
 const PORT = 3000;
@@ -47,7 +47,7 @@ createServer((req, res) => {
   });
 }).listen(PORT, () => {
   console.log(`✅ 로컬 서버 켜짐: http://localhost:${PORT}/api/generate`);
-  console.log(`   키 ${process.env.GEMINI_API_KEY.length}자 로드 / 모델 gemini-2.5-flash`);
+  console.log(`   키 ${process.env.OPENAI_API_KEY.length}자 로드 / 모델 ${process.env.OPENAI_MODEL || "gpt-4o-mini"}`);
   console.log(`   크롬에서 테스트하세요. 끄려면 Ctrl+C.`);
 });
 
