@@ -18,18 +18,27 @@ async function getClientId() {
   return id;
 }
 
+// 유료 구독 라이선스 키 (content.js의 Pro 입력으로 저장됨). 없으면 빈 문자열.
+async function getLicense() {
+  const { quillcastLicense } = await chrome.storage.local.get("quillcastLicense");
+  return quillcastLicense || "";
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== "YTR_GENERATE") return; // 다른 메시지는 무시
 
   (async () => {
     try {
       const clientId = await getClientId();
+      const license = await getLicense();
+      const headers = {
+        "Content-Type": "application/json",
+        "x-quillcast-client": clientId, // 무료 한도 미터링 단위
+      };
+      if (license) headers["x-quillcast-license"] = license; // 유료 구독 라이선스 키
       const res = await fetch(`${API_BASE}/api/generate`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-quillcast-client": clientId, // 서버 사용량 미터링 단위
-        },
+        headers,
         body: JSON.stringify({
           transcript: msg.transcript,
           title: msg.title,

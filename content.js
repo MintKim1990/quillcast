@@ -9,6 +9,12 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // ★ LemonSqueezy 구독 체크아웃 URL — 배포 전 실제 URL로 교체.
+  //   (LS 대시보드 > 상품 > Share/Buy link, 예: https://quillcast.lemonsqueezy.com/buy/xxxxxxxx)
+  const CHECKOUT_URL =
+    "https://quillcast.lemonsqueezy.com/checkout/buy/cf099b5c-9bb5-4204-85e5-ce73891d0c13";
+  const PRICE = "8"; // 표시용 가격($/월)
+
   // ── UI 언어 (브라우저 locale 자동: 한국어면 한국어, 그 외엔 영어) ───────
   const UI = (navigator.language || "").toLowerCase().startsWith("ko")
     ? "ko"
@@ -46,6 +52,14 @@
       cached: (label) => `${label} · 저장된 결과 (새로 만들려면 ↻ 다시)`,
       generating: (label) => `${label} 생성 중…`,
       done: (label, inLen, outLen) => `${label} 완료 ✓ · 자막 ${inLen}자 → ${outLen}자`,
+      pro: "✨ Pro",
+      proTitle: "Quillcast Pro — 무제한 생성",
+      proDesc: (price) => `구독하면 월 한도 없이 사용 ($${price}/월).`,
+      subscribe: "구독하기",
+      licensePlaceholder: "라이선스 키 붙여넣기",
+      saveLicense: "저장",
+      licenseSaved: "✨ Pro 활성 — 재생성하면 적용돼요.",
+      licenseCleared: "라이선스 키를 지웠어요.",
     },
     en: {
       launcher: "✍️ Quillcast",
@@ -79,6 +93,14 @@
       cached: (label) => `${label} · cached (↻ Redo to regenerate)`,
       generating: (label) => `Generating ${label}…`,
       done: (label, inLen, outLen) => `${label} done ✓ · ${inLen} → ${outLen} chars`,
+      pro: "✨ Pro",
+      proTitle: "Quillcast Pro — unlimited",
+      proDesc: (price) => `Subscribe for unlimited generations ($${price}/mo).`,
+      subscribe: "Subscribe",
+      licensePlaceholder: "Paste license key",
+      saveLicense: "Save",
+      licenseSaved: "✨ Pro active — regenerate to apply.",
+      licenseCleared: "License key cleared.",
     },
   }[UI];
 
@@ -156,11 +178,16 @@
       if (current && current.fmt !== "raw")
         runFormat(current.fmt, current.label, true);
     };
+    const pro = document.createElement("button");
+    pro.id = "ytr-pro";
+    pro.textContent = STR.pro;
+    pro.title = STR.proTitle;
+    pro.onclick = () => toggleProPanel();
     const close = document.createElement("button");
     close.id = "ytr-close";
     close.textContent = "✕";
     close.onclick = () => panel.remove();
-    bar.append(title, regen, copy, close);
+    bar.append(title, regen, copy, pro, close);
 
     // 포맷 선택 바
     const fmts = document.createElement("div");
@@ -204,7 +231,7 @@
     ta.readOnly = true;
     ta.placeholder = STR.placeholder;
 
-    panel.append(bar, fmts, status, ta);
+    panel.append(bar, fmts, buildProPanel(), status, ta);
     document.body.appendChild(panel);
     return panel;
   }
@@ -240,6 +267,67 @@
     if (rg) rg.disabled = b;
     const ls = document.getElementById("ytr-lang");
     if (ls) ls.disabled = b;
+  }
+
+  // ── 라이선스(유료) 키 저장/조회 — background.js가 읽어 서버에 전송 ──────
+  async function getLicense() {
+    const { quillcastLicense } = await chrome.storage.local.get("quillcastLicense");
+    return quillcastLicense || "";
+  }
+  async function setLicense(key) {
+    if (key) await chrome.storage.local.set({ quillcastLicense: key });
+    else await chrome.storage.local.remove("quillcastLicense");
+  }
+
+  // ── Pro(구독) 패널: 구독 버튼 + 라이선스 키 입력. 검증은 서버가 함. ────
+  function buildProPanel() {
+    const wrap = document.createElement("div");
+    wrap.id = "ytr-propanel";
+    wrap.style.cssText =
+      "display:none;flex-direction:column;gap:6px;padding:8px;border-top:1px solid rgba(0,0,0,.1);font-size:12px;";
+
+    const desc = document.createElement("div");
+    desc.textContent = STR.proDesc(PRICE);
+
+    const sub = document.createElement("button");
+    sub.className = "ytr-fmt";
+    sub.textContent = STR.subscribe;
+    sub.onclick = () => window.open(CHECKOUT_URL, "_blank");
+
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:4px;";
+    const input = document.createElement("input");
+    input.id = "ytr-license";
+    input.type = "text";
+    input.placeholder = STR.licensePlaceholder;
+    input.style.cssText = "flex:1;min-width:0;";
+    const save = document.createElement("button");
+    save.className = "ytr-fmt";
+    save.textContent = STR.saveLicense;
+    const msg = document.createElement("div");
+    msg.style.cssText = "opacity:.8;";
+    save.onclick = async () => {
+      const v = input.value.trim();
+      await setLicense(v);
+      msg.textContent = v ? STR.licenseSaved : STR.licenseCleared;
+    };
+    row.append(input, save);
+
+    wrap.append(desc, sub, row, msg);
+    getLicense().then((k) => {
+      if (k) {
+        input.value = k;
+        msg.textContent = STR.licenseSaved;
+      }
+    });
+    return wrap;
+  }
+
+  function toggleProPanel(forceOpen) {
+    const p = document.getElementById("ytr-propanel");
+    if (!p) return;
+    p.style.display =
+      forceOpen || p.style.display === "none" ? "flex" : "none";
   }
 
   // ── 자막 확보 (영상당 1회 추출 후 캐시) ───────────────────────────────
@@ -295,6 +383,7 @@
       const resp = await sendGenerate(fmt, t.text, meta);
       if (!resp.ok) {
         setStatus(STR.errors[resp.code] || STR.errors.upstream, false);
+        if (resp.code === "limit") toggleProPanel(true); // 무료 소진 → 구독 패널 열기
         return;
       }
       outputCache[cacheKey] = resp.text;

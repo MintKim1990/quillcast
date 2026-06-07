@@ -8,6 +8,7 @@ const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TRANSCRIPT = 40000; // 자막 글자수 상한 (비용/남용 방지). 초과분은 잘라서 처리.
 const FREE_MONTHLY_LIMIT = parseInt(process.env.FREE_MONTHLY_LIMIT || "5", 10); // 무료 월 생성 횟수 (Vercel env로 조정)
 const RATE_PER_MIN = parseInt(process.env.RATE_PER_MIN || "12", 10); // IP당 분당 요청 상한 (어뷰징 백스톱)
+const PAID_MONTHLY_LIMIT = parseInt(process.env.PAID_MONTHLY_LIMIT || "500", 10); // 유료(라이선스) 월 상한 — 키 공유 남용 봉인용 안전캡
 
 // ── 클리셰 금지 + 통찰 중심 재구성 룰 (P1.1b 튜닝) ─────────────────────
 // 출력 언어 지시 (익스텐션 드롭다운 lang 값 → 프롬프트 지시문)
@@ -118,18 +119,18 @@ async function isRateLimited(ip) {
   return (out[0]?.result ?? 0) > RATE_PER_MIN;
 }
 
-// 무료 월 한도 체크 + 1 차감. 초과면 allowed:false.
+// 월 한도 체크 + 1 차감. id별 카운터가 limit 초과면 allowed:false.
 // 통과 시 카운트가 1 늘며, 생성 실패하면 refund()로 되돌린다.
-async function checkQuota(clientId) {
+async function checkQuota(id, limit) {
   const month = new Date().toISOString().slice(0, 7); // 예: "2026-06"
-  const key = `q:${clientId}:${month}`;
+  const key = `q:${id}:${month}`;
   const out = await redisPipe([
     ["INCR", key],
     ["EXPIRE", key, 60 * 60 * 24 * 40], // 약 40일 — 지난 달 키는 자동 소멸
   ]);
   if (!out) return { allowed: true, refund: async () => {} }; // fail-open
   const count = out[0]?.result ?? 0;
-  if (count > FREE_MONTHLY_LIMIT) {
+  if (count > limit) {
     await redisCmd("DECR", key); // 한도 초과분은 되돌려 카운터를 한도에서 안정
     return { allowed: false, refund: async () => {} };
   }
@@ -139,6 +140,42 @@ async function checkQuota(clientId) {
       await redisCmd("DECR", key);
     },
   };
+}
+
+// 라이선스 키(LemonSqueezy) 유효성 = 유료 구독 활성 여부. Upstash에 결과 캐시(검증 API 과호출 방지).
+// LS License API validate는 인증 불필요 — 라이선스 키만 보내면 됨. 구독 취소/만료 시 status가 바뀐다.
+const LS_VALIDATE_URL = "https://api.lemonsqueezy.com/v1/licenses/validate";
+async function validateLicense(key) {
+  if (!key) return false;
+  const cacheKey = `lic:${key}`;
+  const cached = await redisCmd("GET", cacheKey);
+  if (cached === "1") return true;
+  if (cached === "0") return false;
+  let valid = false;
+  try {
+    const r = await fetch(LS_VALIDATE_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ license_key: key }).toString(),
+    });
+    const data = await r.json().catch(() => ({}));
+    // valid=true면 키가 실재·미만료. status는 inactive(미활성)도 정상 — 우린 activate를 안 쓰므로
+    // 기기 활성화 여부와 무관하게 구독만 살아있으면 통과. expired/disabled만 제외.
+    const st = data?.license_key?.status;
+    valid = data?.valid === true && st !== "expired" && st !== "disabled";
+  } catch (e) {
+    console.error("[license] validate error:", e?.message || e);
+    return false; // 검증 불가 시 보수적으로 무료로 강등
+  }
+  // 유효=6h 캐시 / 무효=10분(결제 직후 빨리 반영). 저장소 없으면 캐시 생략(매번 검증).
+  await redisPipe([
+    ["SET", cacheKey, valid ? "1" : "0"],
+    ["EXPIRE", cacheKey, valid ? 60 * 60 * 6 : 600],
+  ]);
+  return valid;
 }
 
 // OpenAI Chat Completions 호출 — 일시 오류(429/500/502/503)는 자동 재시도.
@@ -197,7 +234,10 @@ export default async function handler(req, res) {
   // CORS — 익스텐션/브라우저에서 호출 가능하게. (P3에서 출시 도메인으로 좁힐 예정)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, x-quillcast-client, x-quillcast-license"
+  );
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST")
     return res.status(405).json({ ok: false, code: "bad_request" });
@@ -240,10 +280,16 @@ export default async function handler(req, res) {
   if (transcript.length > MAX_TRANSCRIPT)
     transcript = transcript.slice(0, MAX_TRANSCRIPT);
 
-  // 무료 월 한도 차감 (검증 통과한 정상 요청만 카운트). 초과면 차단.
-  const quota = await checkQuota(clientId);
+  // 유료(라이선스) 여부 판정 → 한도 분기.
+  //   유료: 라이선스키 기준 높은 상한(PAID_MONTHLY_LIMIT). 무료: clientId 기준 무료 한도.
+  const license = String(req.headers["x-quillcast-license"] || "").trim();
+  const isPaid = license ? await validateLicense(license) : false;
+  const quota = isPaid
+    ? await checkQuota(`lic:${license}`, PAID_MONTHLY_LIMIT)
+    : await checkQuota(clientId, FREE_MONTHLY_LIMIT);
   if (!quota.allowed) {
-    return res.status(429).json({ ok: false, code: "limit" });
+    // 무료 소진=limit(구독 유도), 유료 안전캡 도달=busy(공유 남용 의심).
+    return res.status(429).json({ ok: false, code: isPaid ? "busy" : "limit" });
   }
 
   const prompt = `${FORMATS[format](buildCtx(title, channel), buildRules(lang))}
