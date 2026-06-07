@@ -8,14 +8,28 @@
 //   - 배포 후 : "https://<your-project>.vercel.app"
 const API_BASE = "https://quillcast-three.vercel.app";
 
+// 설치별 익명 식별자(clientId) — 서버의 무료 월 한도 미터링 단위.
+// chrome.storage.local에 1회 생성해 영구 보관 (개인정보 아님, 랜덤 UUID).
+async function getClientId() {
+  const { quillcastClientId } = await chrome.storage.local.get("quillcastClientId");
+  if (quillcastClientId) return quillcastClientId;
+  const id = crypto.randomUUID();
+  await chrome.storage.local.set({ quillcastClientId: id });
+  return id;
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== "YTR_GENERATE") return; // 다른 메시지는 무시
 
   (async () => {
     try {
+      const clientId = await getClientId();
       const res = await fetch(`${API_BASE}/api/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-quillcast-client": clientId, // 서버 사용량 미터링 단위
+        },
         body: JSON.stringify({
           transcript: msg.transcript,
           title: msg.title,
@@ -26,18 +40,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        sendResponse({
-          ok: false,
-          error: data.error || `서버 HTTP ${res.status}`,
-        });
+        // 서버가 준 code를 그대로 전달 → content.js가 KR/EN로 현지화.
+        sendResponse({ ok: false, code: data.code || "upstream" });
         return;
       }
       sendResponse({ ok: true, text: data.text });
     } catch (e) {
-      sendResponse({
-        ok: false,
-        error: `서버 연결 실패 (${API_BASE}): ${e?.message || e}`,
-      });
+      console.warn("[quillcast] server fetch failed:", e?.message || e);
+      sendResponse({ ok: false, code: "no_response" });
     }
   })();
 

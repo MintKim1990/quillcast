@@ -6,6 +6,8 @@
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TRANSCRIPT = 40000; // 자막 글자수 상한 (비용/남용 방지). 초과분은 잘라서 처리.
+const FREE_MONTHLY_LIMIT = parseInt(process.env.FREE_MONTHLY_LIMIT || "5", 10); // 무료 월 생성 횟수 (Vercel env로 조정)
+const RATE_PER_MIN = parseInt(process.env.RATE_PER_MIN || "12", 10); // IP당 분당 요청 상한 (어뷰징 백스톱)
 
 // ── 클리셰 금지 + 통찰 중심 재구성 룰 (P1.1b 튜닝) ─────────────────────
 // 출력 언어 지시 (익스텐션 드롭다운 lang 값 → 프롬프트 지시문)
@@ -68,6 +70,76 @@ ${rules}`,
 export const config = { maxDuration: 30 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ── Upstash Redis (REST) — 사용량 미터링/한도 저장소 ─────────────────────
+// env(UPSTASH_REDIS_REST_URL/TOKEN) 미설정이거나 오류면 null 반환 → 게이트는 fail-open
+// (저장소 장애가 제품 전체를 막지 않게. OpenAI 호출당 비용이 작아 감수 가능한 트레이드오프.)
+// Vercel 마켓플레이스 Upstash 연동은 KV_REST_API_*로, 독립 Upstash는 UPSTASH_REDIS_REST_*로
+// 주입한다 — 둘 다 동일한 Upstash REST 프로토콜이므로 어느 이름이든 받는다.
+const REDIS_URL =
+  process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const REDIS_TOKEN =
+  process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+
+async function redisPipe(commands) {
+  if (!REDIS_URL || !REDIS_TOKEN) return null;
+  try {
+    const r = await fetch(`${REDIS_URL}/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${REDIS_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(commands),
+    });
+    if (!r.ok) {
+      console.error("[redis] HTTP", r.status);
+      return null;
+    }
+    return await r.json(); // [{ result: ... }, ...]
+  } catch (e) {
+    console.error("[redis] error:", e?.message || e);
+    return null;
+  }
+}
+const redisCmd = async (...args) => {
+  const out = await redisPipe([args]);
+  return out ? out[0]?.result : null;
+};
+
+// IP 분당 요청 상한 초과 여부. 저장소 미동작 시 false(fail-open).
+async function isRateLimited(ip) {
+  const key = `rl:${ip}:${Math.floor(Date.now() / 60000)}`;
+  const out = await redisPipe([
+    ["INCR", key],
+    ["EXPIRE", key, 70],
+  ]);
+  if (!out) return false;
+  return (out[0]?.result ?? 0) > RATE_PER_MIN;
+}
+
+// 무료 월 한도 체크 + 1 차감. 초과면 allowed:false.
+// 통과 시 카운트가 1 늘며, 생성 실패하면 refund()로 되돌린다.
+async function checkQuota(clientId) {
+  const month = new Date().toISOString().slice(0, 7); // 예: "2026-06"
+  const key = `q:${clientId}:${month}`;
+  const out = await redisPipe([
+    ["INCR", key],
+    ["EXPIRE", key, 60 * 60 * 24 * 40], // 약 40일 — 지난 달 키는 자동 소멸
+  ]);
+  if (!out) return { allowed: true, refund: async () => {} }; // fail-open
+  const count = out[0]?.result ?? 0;
+  if (count > FREE_MONTHLY_LIMIT) {
+    await redisCmd("DECR", key); // 한도 초과분은 되돌려 카운터를 한도에서 안정
+    return { allowed: false, refund: async () => {} };
+  }
+  return {
+    allowed: true,
+    refund: async () => {
+      await redisCmd("DECR", key);
+    },
+  };
+}
 
 // OpenAI Chat Completions 호출 — 일시 오류(429/500/502/503)는 자동 재시도.
 // 과부하/혼잡 스파이크가 길어도 견디게 지수 백오프 + jitter.
@@ -136,6 +208,20 @@ export default async function handler(req, res) {
     return res.status(500).json({ ok: false, code: "config" });
   }
 
+  // ── 식별 + 남용 방지 게이트 (P3①: 비용 보호) ─────────────────────────
+  // 익스텐션은 설치별 clientId를 헤더로 보낸다. 없으면 차단(무단 호출 1차 방어).
+  const clientId = String(req.headers["x-quillcast-client"] || "").trim();
+  if (clientId.length < 8) {
+    return res.status(400).json({ ok: false, code: "bad_request" });
+  }
+  const ip =
+    String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    "unknown";
+  // IP 분당 요청 상한 — clientId를 바꿔가며 때리는 스크립트성 남용 백스톱.
+  if (await isRateLimited(ip)) {
+    return res.status(429).json({ ok: false, code: "busy" });
+  }
+
   // 본문 파싱 (Vercel은 JSON이면 req.body 자동 파싱하지만 문자열로 올 때도 방어)
   let body = req.body;
   if (typeof body === "string") {
@@ -154,6 +240,12 @@ export default async function handler(req, res) {
   if (transcript.length > MAX_TRANSCRIPT)
     transcript = transcript.slice(0, MAX_TRANSCRIPT);
 
+  // 무료 월 한도 차감 (검증 통과한 정상 요청만 카운트). 초과면 차단.
+  const quota = await checkQuota(clientId);
+  if (!quota.allowed) {
+    return res.status(429).json({ ok: false, code: "limit" });
+  }
+
   const prompt = `${FORMATS[format](buildCtx(title, channel), buildRules(lang))}
 
 [영상 자막]
@@ -161,6 +253,7 @@ ${transcript}`;
 
   const result = await callOpenAI(prompt, key);
   if (!result.ok) {
+    await quota.refund(); // 생성 실패 → 소비한 무료 횟수 되돌림(사용자 보호)
     // 사용자 문구는 클라이언트가 code로 KR/EN 현지화. 진짜 원인은 callOpenAI가 서버 로그에 남김.
     return res.status(502).json({ ok: false, code: result.code || "upstream" });
   }

@@ -3,6 +3,7 @@
   "name": "Quillcast (dev)",
   "version": "0.0.5",
   "description": "유튜브 영상 자막을 뉴스레터·블로그 등 텍스트 자산으로 변환",
+  "permissions": ["storage"],
   "host_permissions": [
     "https://www.youtube.com/*",
     "http://localhost:3000/*",
