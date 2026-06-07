@@ -60,6 +60,11 @@
       saveLicense: "저장",
       licenseSaved: "✨ Pro 활성 — 재생성하면 적용돼요.",
       licenseCleared: "라이선스 키를 지웠어요.",
+      planFree: "무료 플랜",
+      planFreeUsed: (u, l) => `무료 · 이번 달 ${u}/${l}`,
+      planPro: "✨ Pro 이용 중",
+      subscribeShort: "✨ 무제한 구독",
+      manageKey: "키 관리",
     },
     en: {
       launcher: "✍️ Quillcast",
@@ -101,6 +106,11 @@
       saveLicense: "Save",
       licenseSaved: "✨ Pro active — regenerate to apply.",
       licenseCleared: "License key cleared.",
+      planFree: "Free plan",
+      planFreeUsed: (u, l) => `Free · ${u}/${l} this month`,
+      planPro: "✨ Pro active",
+      subscribeShort: "✨ Go unlimited",
+      manageKey: "Manage key",
     },
   }[UI];
 
@@ -178,16 +188,11 @@
       if (current && current.fmt !== "raw")
         runFormat(current.fmt, current.label, true);
     };
-    const pro = document.createElement("button");
-    pro.id = "ytr-pro";
-    pro.textContent = STR.pro;
-    pro.title = STR.proTitle;
-    pro.onclick = () => toggleProPanel();
     const close = document.createElement("button");
     close.id = "ytr-close";
     close.textContent = "✕";
     close.onclick = () => panel.remove();
-    bar.append(title, regen, copy, pro, close);
+    bar.append(title, regen, copy, close);
 
     // 포맷 선택 바
     const fmts = document.createElement("div");
@@ -231,7 +236,7 @@
     ta.readOnly = true;
     ta.placeholder = STR.placeholder;
 
-    panel.append(bar, fmts, buildProPanel(), status, ta);
+    panel.append(bar, fmts, status, ta, buildProPanel(), buildPlanBar());
     document.body.appendChild(panel);
     return panel;
   }
@@ -310,6 +315,7 @@
       const v = input.value.trim();
       await setLicense(v);
       msg.textContent = v ? STR.licenseSaved : STR.licenseCleared;
+      setPlan(v ? { plan: "pro" } : null); // 상태바 즉시 갱신
     };
     row.append(input, save);
 
@@ -328,6 +334,40 @@
     if (!p) return;
     p.style.display =
       forceOpen || p.style.display === "none" ? "flex" : "none";
+  }
+
+  // ── 하단 플랜 상태바: 현재 플랜·잔여 + 업그레이드 버튼 (항상 보임) ──────
+  function setPlan(info) {
+    const label = document.getElementById("ytr-plan-label");
+    const btn = document.getElementById("ytr-plan-btn");
+    if (!label || !btn) return;
+    if (info?.plan === "pro") {
+      label.textContent = STR.planPro;
+      btn.textContent = STR.manageKey;
+    } else if (info && typeof info.used === "number") {
+      label.textContent = STR.planFreeUsed(info.used, info.limit);
+      btn.textContent = STR.subscribeShort;
+    } else {
+      label.textContent = STR.planFree;
+      btn.textContent = STR.subscribeShort;
+    }
+  }
+
+  function buildPlanBar() {
+    const bar = document.createElement("div");
+    bar.id = "ytr-plan";
+    bar.style.cssText =
+      "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-top:1px solid rgba(0,0,0,.12);font-size:12px;";
+    const label = document.createElement("span");
+    label.id = "ytr-plan-label";
+    const btn = document.createElement("button");
+    btn.id = "ytr-plan-btn";
+    btn.className = "ytr-fmt";
+    btn.onclick = () => toggleProPanel();
+    bar.append(label, btn);
+    // 초기: 저장된 키 있으면 Pro로, 없으면 무료로 표시 (첫 생성 후 서버 응답으로 정정)
+    getLicense().then((k) => setPlan(k ? { plan: "pro" } : null));
+    return bar;
   }
 
   // ── 자막 확보 (영상당 1회 추출 후 캐시) ───────────────────────────────
@@ -381,6 +421,7 @@
       ta.value = "";
       const meta = getVideoMeta();
       const resp = await sendGenerate(fmt, t.text, meta);
+      if (resp.plan) setPlan(resp); // 응답의 플랜·잔여 정보로 상태바 갱신
       if (!resp.ok) {
         setStatus(STR.errors[resp.code] || STR.errors.upstream, false);
         if (resp.code === "limit") toggleProPanel(true); // 무료 소진 → 구독 패널 열기

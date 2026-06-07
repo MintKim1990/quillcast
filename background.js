@@ -49,11 +49,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        // 서버가 준 code를 그대로 전달 → content.js가 KR/EN로 현지화.
-        sendResponse({ ok: false, code: data.code || "upstream" });
+        // 서버가 준 code/플랜정보 그대로 전달 → content.js가 현지화 + 상태바 갱신.
+        sendResponse({
+          ok: false,
+          code: data.code || "upstream",
+          plan: data.plan,
+          used: data.used,
+          limit: data.limit,
+        });
         return;
       }
-      sendResponse({ ok: true, text: data.text });
+      sendResponse({
+        ok: true,
+        text: data.text,
+        plan: data.plan,
+        used: data.used,
+        limit: data.limit,
+      });
     } catch (e) {
       console.warn("[quillcast] server fetch failed:", e?.message || e);
       sendResponse({ ok: false, code: "no_response" });

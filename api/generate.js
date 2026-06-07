@@ -128,14 +128,15 @@ async function checkQuota(id, limit) {
     ["INCR", key],
     ["EXPIRE", key, 60 * 60 * 24 * 40], // 약 40일 — 지난 달 키는 자동 소멸
   ]);
-  if (!out) return { allowed: true, refund: async () => {} }; // fail-open
+  if (!out) return { allowed: true, count: 0, refund: async () => {} }; // fail-open
   const count = out[0]?.result ?? 0;
   if (count > limit) {
     await redisCmd("DECR", key); // 한도 초과분은 되돌려 카운터를 한도에서 안정
-    return { allowed: false, refund: async () => {} };
+    return { allowed: false, count: limit, refund: async () => {} };
   }
   return {
     allowed: true,
+    count,
     refund: async () => {
       await redisCmd("DECR", key);
     },
@@ -289,7 +290,13 @@ export default async function handler(req, res) {
     : await checkQuota(clientId, FREE_MONTHLY_LIMIT);
   if (!quota.allowed) {
     // 무료 소진=limit(구독 유도), 유료 안전캡 도달=busy(공유 남용 의심).
-    return res.status(429).json({ ok: false, code: isPaid ? "busy" : "limit" });
+    return res.status(429).json({
+      ok: false,
+      code: isPaid ? "busy" : "limit",
+      plan: isPaid ? "pro" : "free",
+      used: FREE_MONTHLY_LIMIT,
+      limit: FREE_MONTHLY_LIMIT,
+    });
   }
 
   const prompt = `${FORMATS[format](buildCtx(title, channel), buildRules(lang))}
@@ -303,5 +310,11 @@ ${transcript}`;
     // 사용자 문구는 클라이언트가 code로 KR/EN 현지화. 진짜 원인은 callOpenAI가 서버 로그에 남김.
     return res.status(502).json({ ok: false, code: result.code || "upstream" });
   }
-  return res.status(200).json({ ok: true, text: result.text });
+  return res.status(200).json({
+    ok: true,
+    text: result.text,
+    plan: isPaid ? "pro" : "free",
+    used: isPaid ? undefined : quota.count,
+    limit: isPaid ? undefined : FREE_MONTHLY_LIMIT,
+  });
 }
