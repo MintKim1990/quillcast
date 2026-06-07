@@ -160,3 +160,34 @@
 #ytr-text:focus {
   outline: none;
 }
+
+/* 플랜 상태바 + 구독 CTA */
+#ytr-plan {
+  background: #fafafa;
+}
+#ytr-plan-label {
+  color: #555;
+}
+/* 무료 소진 시 강조: 라벨 빨강·굵게 + 구독 버튼 솔리드 빨강 + 펄스 */
+#ytr-plan.ytr-exhausted #ytr-plan-label {
+  color: #cc0000;
+  font-weight: 700;
+}
+#ytr-plan-btn.ytr-cta {
+  background: #cc0000;
+  color: #fff;
+  border-color: #cc0000;
+  animation: ytr-cta-pulse 1.4s ease-in-out infinite;
+}
+#ytr-plan-btn.ytr-cta:hover {
+  background: #a00;
+}
+@keyframes ytr-cta-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(204, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(204, 0, 0, 0);
+  }
+}

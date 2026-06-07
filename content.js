@@ -338,19 +338,24 @@
 
   // ── 하단 플랜 상태바: 현재 플랜·잔여 + 업그레이드 버튼 (항상 보임) ──────
   function setPlan(info) {
+    const bar = document.getElementById("ytr-plan");
     const label = document.getElementById("ytr-plan-label");
     const btn = document.getElementById("ytr-plan-btn");
-    if (!label || !btn) return;
+    if (!bar || !label || !btn) return;
+    let exhausted = false;
     if (info?.plan === "pro") {
       label.textContent = STR.planPro;
       btn.textContent = STR.manageKey;
     } else if (info && typeof info.used === "number") {
       label.textContent = STR.planFreeUsed(info.used, info.limit);
       btn.textContent = STR.subscribeShort;
+      exhausted = info.used >= info.limit; // 무료 소진 → 구독 버튼 강조
     } else {
       label.textContent = STR.planFree;
       btn.textContent = STR.subscribeShort;
     }
+    bar.classList.toggle("ytr-exhausted", exhausted);
+    btn.classList.toggle("ytr-cta", exhausted);
   }
 
   function buildPlanBar() {
