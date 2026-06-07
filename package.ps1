@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
 # manifest에서 버전 읽기 (zip 이름용)
-$manifest = Get-Content (Join-Path $root "manifest.json") -Raw | ConvertFrom-Json
+$manifest = Get-Content (Join-Path $root "manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 $version = $manifest.version
 
 # 익스텐션에 들어갈 파일/폴더 (존재하는 것만)
