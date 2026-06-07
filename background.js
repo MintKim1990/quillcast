@@ -6,7 +6,7 @@
 // ★ 배포 후 아래 API_BASE를 실제 Vercel URL로 교체.
 //   - 로컬 개발: "http://localhost:3000" (npx vercel dev)
 //   - 배포 후 : "https://<your-project>.vercel.app"
-const API_BASE = "http://localhost:3000";
+const API_BASE = "https://quillcast-three.vercel.app";
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== "YTR_GENERATE") return; // 다른 메시지는 무시

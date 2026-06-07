@@ -6,7 +6,7 @@
   "host_permissions": [
     "https://www.youtube.com/*",
     "http://localhost:3000/*",
-    "https://*.vercel.app/*"
+    "https://quillcast-three.vercel.app/*"
   ],
   "background": {
     "service_worker": "background.js"
