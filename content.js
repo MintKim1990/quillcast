@@ -100,7 +100,7 @@
   let busy = false;
   let lang = "auto"; // 출력 언어 기본값 = 영상 언어(auto). 드롭다운에서 언제든 변경.
   let transcriptCache = null; // { videoId, text, via, count, ok }
-  const outputCache = {}; // `${videoId}:${format}:${lang}` → 생성된 텍스트 (재방문 시 Gemini 재호출 안 함)
+  const outputCache = {}; // `${videoId}:${format}:${lang}` → 생성된 텍스트 (재방문 시 LLM 재호출 안 함)
   let current = null; // { fmt, label } — ↻ 다시생성 / 언어변경용
 
   const getVideoId = () => {
@@ -326,7 +326,7 @@
     });
   }
 
-  // ── 영상 제목 / 채널 추출 (Gemini 맥락 주입용) ────────────────────────
+  // ── 영상 제목 / 채널 추출 (LLM 맥락 주입용) ────────────────────────
   function getVideoMeta() {
     const title =
       document.querySelector("h1.ytd-watch-metadata")?.innerText?.trim() ||

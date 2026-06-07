@@ -1,6 +1,6 @@
 # Quillcast — Privacy Policy
 
-_Last updated: 2026-06-06_
+_Last updated: 2026-06-07_
 
 Quillcast is a Chrome extension that turns a YouTube video's transcript into text
 assets (newsletter, blog post, tweet thread, video description). This policy
@@ -13,9 +13,9 @@ When you click a format button on a YouTube video, Quillcast reads:
 - the **video's transcript/caption text** (from the page you are viewing), and
 - the **video title and channel name** (used only as context for better output).
 
-This information is sent to our server, which forwards it to **Google's Gemini
-API** to generate the text you requested. The generated text is returned to you
-and shown in the panel.
+This information is sent to our server, which forwards it to the **OpenAI API**
+to generate the text you requested. The generated text is returned to you and
+shown in the panel.
 
 ## What we do NOT do
 
@@ -30,10 +30,11 @@ and shown in the panel.
 
 ## Third-party processing
 
-- **Google (Gemini API):** transcript text and video title/channel are sent to
-  Google to generate the output. This processing is subject to Google's privacy
-  terms: https://ai.google.dev/gemini-api/terms and
-  https://policies.google.com/privacy
+- **OpenAI (API):** transcript text and video title/channel are sent to OpenAI to
+  generate the output. OpenAI does not use data submitted via its API to train its
+  models. This processing is subject to OpenAI's policies:
+  https://openai.com/policies/privacy-policy and
+  https://openai.com/policies/api-data-usage-policies
 
 ## Permissions
 

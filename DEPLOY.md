@@ -1,19 +1,19 @@
 # Quillcast 배포 가이드 (P3 ①)
 
-> 목표: 로컬 서버(`localhost:3000`) 대신 **Vercel에 올려서** 누구나·항상 쓸 수 있게 + Gemini 무료 20회/일 한도 풀기.
+> 목표: 로컬 서버(`localhost:3000`) 대신 **Vercel에 올려서** 누구나·항상 쓸 수 있게 (OpenAI 키는 서버 env에만, 사용한 만큼만 과금).
 > 대부분 **한 번만** 하는 계정 세팅이다.
 
 ---
 
-## 0. 준비 (Gemini 키 새로 발급 — 권장)
+## 0. 준비 (OpenAI 키 — 배포용은 Vercel env에만)
 
-기존 키(`AQ.Ab8...`)는 예전에 채팅에 노출됐다. 출시 전 **새 키로 교체**한다.
+OpenAI 키는 이미 발급 + 결제(크레딧) 완료 상태. **배포 키는 Vercel env에만** 넣는다 (코드/깃/채팅엔 절대 X). 채팅 등에 노출된 이력이 있는 키는 새 키로 교체한다.
 
-1. https://aistudio.google.com/apikey 접속
-2. 노출된 기존 키 **삭제(Revoke)**
-3. **Create API key** → 새 키 복사 (이 키를 Vercel에만 넣는다. 코드/깃엔 절대 X)
+1. https://platform.openai.com/api-keys 접속
+2. 노출 이력 있는 키는 **Revoke**
+3. **Create new secret key** → `sk-...` 복사 (이 키를 3번에서 Vercel에만 넣는다)
 
-> ⚠️ 무료 등급은 `gemini-2.5-flash` 하루 20회. 실사용하려면 **결제(billing) 활성화** 필요 → 아래 4번.
+> OpenAI는 무료 일일 한도 없음(종량제). 생성 1회 ≈ 1센트 미만. 기본 모델 `gpt-4o-mini` (서버 env `OPENAI_MODEL`로 교체 가능).
 
 ---
 
@@ -49,7 +49,7 @@ npx vercel --prod
 ## 3. Vercel에 API 키 넣기 (env)
 
 ```
-npx vercel env add GEMINI_API_KEY
+npx vercel env add OPENAI_API_KEY
 ```
 
 - `Value?` → 0번에서 만든 **새 키** 붙여넣기
@@ -64,15 +64,12 @@ npx vercel --prod
 
 ---
 
-## 4. Gemini 결제 활성화 (무료 20회/일 풀기)
+## 4. OpenAI 결제 (이미 완료)
 
-실사용 전 필수. **idle 0 / 사용한 만큼만 과금** (생성 1회 ≈ 1센트 미만).
+OpenAI는 종량제 — **idle 0 / 사용한 만큼만 과금** (생성 1회 ≈ 1센트 미만). 카드 등록 + 크레딧 충전은 이미 완료됨.
 
-1. https://aistudio.google.com/apikey → 해당 키의 프로젝트
-2. **Set up Billing** (또는 Google Cloud Console → Billing) → 카드 등록
-3. 결제 계정 연결되면 무료 한도 제한이 유료 한도로 바뀜 (RPM/RPD 대폭 ↑)
-
-> 결제 안 켜도 배포는 됨 — 단 하루 20회 넘으면 429. 출시 직전에 켜면 됨.
+- 잔액 떨어져 끊기는 게 걱정되면 https://platform.openai.com/settings/organization/billing 에서 **Auto recharge** + **월 한도(Monthly limit)** 설정 권장 (한도 = 폭주/남용 시 비용 상한).
+- 사용량/잔액 확인: https://platform.openai.com/usage
 
 ---
 

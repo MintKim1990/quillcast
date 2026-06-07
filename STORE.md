@@ -75,7 +75,7 @@ https://github.com/MintKim1990/quillcast/blob/main/PRIVACY.md
 - [ ] **아이콘** 16 / 48 / 128 px PNG (이미지 — 제가 못 만듦. Canva/피그마/AI생성 등)
 - [ ] **스크린샷** 1280×800 (또는 640×400) 최소 1장 — 패널이 영상 위에 떠서 뉴스레터 보여주는 화면 캡처
 - [ ] PRIVACY.md 연락용 이메일 채우기
-- [ ] (영문 우선이면) UI 버튼 라벨 영어화 여부 결정
+- [x] UI 버튼/문구 다국어 — 브라우저 언어 따라 KR/EN 자동 (완료)
 - [ ] manifest 출시용 정리: 이름 "(dev)" 제거 + icons 추가 (Claude가 처리)
 - [ ] 패키징 zip 업로드 (`package.ps1` 실행 — Claude가 만들어 둠)
 ```
