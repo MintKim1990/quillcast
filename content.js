@@ -9,10 +9,9 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // ★ LemonSqueezy 구독 체크아웃 URL — 배포 전 실제 URL로 교체.
-  //   (LS 대시보드 > 상품 > Share/Buy link, 예: https://quillcast.lemonsqueezy.com/buy/xxxxxxxx)
+  // LemonSqueezy 구독 체크아웃 URL — 라이브 상품 "Quillcast Pro" Buy link.
   const CHECKOUT_URL =
-    "https://quillcast.lemonsqueezy.com/checkout/buy/cf099b5c-9bb5-4204-85e5-ce73891d0c13";
+    "https://quillcast.lemonsqueezy.com/checkout/buy/36ab2884-c5d5-4b89-bc28-803765497091";
   const PRICE = "8"; // 표시용 가격($/월)
 
   // ── UI 언어 (브라우저 locale 자동: 한국어면 한국어, 그 외엔 영어) ───────
