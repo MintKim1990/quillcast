@@ -46,7 +46,10 @@
         no_response: "서버 응답이 없어요. 잠시 후 다시 시도해주세요.",
         limit: "이번 달 무료 사용 한도를 다 썼어요. 다음 달에 다시 충전돼요.",
       },
-      transcriptFail: (r) => `자막 추출 실패: ${r}`,
+      transcriptNone:
+        "이 영상은 자막이 없어 변환할 수 없어요. (라이브 방송이거나 자막 미제공 영상이에요)",
+      transcriptError:
+        "자막을 가져오지 못했어요. 페이지를 새로고침한 뒤 다시 시도해주세요.",
       rawMeta: (via, count, len) => `원본 자막 · ${via} / ${count}세그먼트 / ${len}자`,
       cached: (label) => `${label} · 저장된 결과 (새로 만들려면 ↻ 다시)`,
       generating: (label) => `${label} 생성 중…`,
@@ -92,7 +95,10 @@
         no_response: "No response from the server. Please try again.",
         limit: "You've used up this month's free generations. They reset next month.",
       },
-      transcriptFail: (r) => `Transcript failed: ${r}`,
+      transcriptNone:
+        "This video has no captions to convert. (It may be a live stream or a video without subtitles.)",
+      transcriptError:
+        "Couldn't fetch the captions. Try refreshing the page and trying again.",
       rawMeta: (via, count, len) => `Transcript · ${via} / ${count} segments / ${len} chars`,
       cached: (label) => `${label} · cached (↻ Redo to regenerate)`,
       generating: (label) => `Generating ${label}…`,
@@ -403,7 +409,14 @@
     try {
       const t = await ensureTranscript();
       if (!t.ok) {
-        setStatus(STR.transcriptFail(t.reason), false);
+        console.debug("[Quillcast] transcript fail:", t.reason);
+        // 자막 트랙/패널/세그먼트가 아예 없으면 "자막 미제공" 안내,
+        // 그 밖의 통신·파싱·타임아웃 오류는 "재시도" 안내.
+        const noSub =
+          /NO_TRANSCRIPT_BUTTON|NO_SEGMENTS|EMPTY_SEGMENTS|NO_TRACKS|EMPTY_BODY|EMPTY_PARSED/.test(
+            String(t.reason || "")
+          );
+        setStatus(noSub ? STR.transcriptNone : STR.transcriptError, false);
         return;
       }
 
