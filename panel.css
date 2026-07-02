@@ -1,4 +1,5 @@
-/* 플로팅 런처 버튼 */
+/* 플로팅 런처 버튼 — 시청 방해 최소화(v1.0.2):
+   등장 몇 초 뒤 반투명 미니 칩("✍️")으로 접힌다. 호버하면 원래 모습으로 복원. */
 #ytr-launch {
   position: fixed;
   bottom: 20px;
@@ -13,9 +14,26 @@
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 200px;
+  transition: max-width 0.25s ease, padding 0.25s ease, opacity 0.25s ease,
+    border-radius 0.25s ease;
 }
 #ytr-launch:hover {
   background: #a00;
+}
+#ytr-launch.ytr-idle {
+  max-width: 42px; /* "✍️"만 보이는 폭 */
+  padding: 10px 12px;
+  border-radius: 50%;
+  opacity: 0.55;
+}
+#ytr-launch.ytr-idle:hover {
+  max-width: 200px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  opacity: 1;
 }
 
 /* 패널 */

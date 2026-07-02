@@ -151,6 +151,24 @@
   };
 
   // ── 플로팅 런처 ───────────────────────────────────────────────────────
+  // 발견 전엔 풀 버튼(존재감), 발견(첫 패널 오픈) 후엔 미니 칩(시청 방해 최소화).
+  let discovered = false; // quillcastDiscovered 캐시 — storage가 비동기라 한 번 읽어 보관
+  let idleTimer = null;
+  chrome.storage.local.get("quillcastDiscovered", (o) => {
+    discovered = !!(o && o.quillcastDiscovered);
+    if (discovered) scheduleCollapse();
+  });
+
+  // 4초 뒤 미니 칩("✍️")으로 접는다 (호버 시 CSS가 펼침). 이미 칩이면 그대로 둔다.
+  function scheduleCollapse() {
+    const b = document.getElementById("ytr-launch");
+    if (!b || b.classList.contains("ytr-idle")) return;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      document.getElementById("ytr-launch")?.classList.add("ytr-idle");
+    }, 4000);
+  }
+
   function ensureLauncher() {
     if (document.getElementById("ytr-launch")) return;
     const b = document.createElement("button");
@@ -158,6 +176,7 @@
     b.textContent = STR.launcher;
     b.addEventListener("click", openPanel);
     document.body.appendChild(b);
+    if (discovered) scheduleCollapse();
   }
 
   // ── 패널 (헤더 + 포맷바 + 상태줄 + 결과) ──────────────────────────────
@@ -247,6 +266,10 @@
   }
 
   function openPanel() {
+    // 버튼을 발견해 열어봤다는 표시 — 지금부터 런처가 미니 칩으로 접힌다.
+    discovered = true;
+    chrome.storage.local.set({ quillcastDiscovered: true });
+    scheduleCollapse();
     ensurePanel().style.display = "flex";
   }
 
@@ -614,8 +637,33 @@
     return null;
   }
 
-  // YouTube는 SPA라 페이지 전환 시 버튼이 사라질 수 있어 계속 보장
-  ensureLauncher();
-  const obs = new MutationObserver(() => ensureLauncher());
+  // YouTube는 SPA — 홈/검색에서 영상을 클릭해도 문서가 새로 로드되지 않는다.
+  // 그래서 유튜브 전체에 주입해두고(manifest matches), watch 페이지 여부에 따라
+  // 런처를 넣고 뺀다. (v1.0.2 수정: 이전엔 /watch 직접 진입·새로고침시에만 버튼이 떴음)
+  const isWatchPage = () => location.pathname === "/watch" && !!getVideoId();
+
+  let lastVid = null; // 영상 전환 감지용 (MutationObserver가 syncUI를 상시 호출하므로 전환시에만 반응)
+  function syncUI() {
+    if (isWatchPage()) {
+      ensureLauncher();
+      const vid = getVideoId();
+      if (vid !== lastVid) {
+        lastVid = vid;
+        // 영상→영상 SPA 전환은 런처가 재생성되지 않아 ensureLauncher의 접기가 안 걸림 → 여기서 보장
+        if (discovered) scheduleCollapse();
+      }
+    } else {
+      lastVid = null;
+      document.getElementById("ytr-launch")?.remove();
+      const p = document.getElementById("ytr-panel");
+      if (p) p.style.display = "none"; // 영상을 벗어나면 패널도 접는다 (다시 열면 flex 복원)
+    }
+  }
+
+  syncUI();
+  // yt-navigate-finish = 유튜브가 SPA 네비게이션 완료 시 쏘는 이벤트 (즉각 반응용)
+  document.addEventListener("yt-navigate-finish", syncUI);
+  // MutationObserver = 이벤트를 못 받는 경우의 안전망 (유튜브 DOM은 상시 변해 자주 불린다)
+  const obs = new MutationObserver(syncUI);
   obs.observe(document.body, { childList: true, subtree: true });
 })();
