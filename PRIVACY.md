@@ -1,6 +1,6 @@
 # Quillcast — Privacy Policy
 
-_Last updated: 2026-06-07_
+_Last updated: 2026-07-02_
 
 Quillcast is a Chrome extension that turns a YouTube video's transcript into text
 assets (newsletter, blog post, tweet thread, video description). This policy
@@ -71,6 +71,14 @@ any content you produce.
 
 Quillcast only acts when you click a button. It does not run generation in the
 background.
+
+## Onboarding & uninstall feedback
+
+- On first install, the extension opens a local welcome page (bundled with the
+  extension) explaining how to get started. Nothing is sent anywhere.
+- If you uninstall, Chrome opens our feedback page. Answering is **optional and
+  anonymous** — we store only the reason/text you choose to submit (kept as a
+  short rolling list), never any identifier linking it to you.
 
 ## Payments
 

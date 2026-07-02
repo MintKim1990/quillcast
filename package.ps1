@@ -16,6 +16,8 @@ $include = @(
   "inject.js",
   "background.js",
   "panel.css",
+  "welcome.html",   # 설치 온보딩 페이지 (v1.0.2)
+  "welcome.js",     # 온보딩 i18n (MV3 CSP상 인라인 불가라 분리)
   "icons"   # 16/48/128 png 폴더 (있으면 포함)
 )
 

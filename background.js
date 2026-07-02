@@ -8,6 +8,18 @@
 //   - 배포 후 : "https://<your-project>.vercel.app"
 const API_BASE = "https://quillcast-three.vercel.app";
 
+// ── 온보딩 + 제거 피드백 (v1.0.2) ────────────────────────────────────────
+// 설치 직후 1회만 웰컴 페이지를 연다 — 버튼이 유튜브 영상 페이지에만 나타나서
+// 안내 없이는 "설치했는데 아무 일도 안 일어남"으로 잊히는 갭을 막는다.
+// (업데이트/브라우저 재시작에는 안 띄움. chrome.tabs.create는 별도 권한 불필요.)
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
+  }
+});
+// 제거 시 익명 피드백 페이지(작성은 선택). 서비스워커가 깰 때마다 재설정해 유실 방지.
+chrome.runtime.setUninstallURL(`${API_BASE}/goodbye.html`).catch(() => {});
+
 // 설치별 익명 식별자(clientId) — 서버의 무료 월 한도 미터링 단위.
 // chrome.storage.local에 1회 생성해 영구 보관 (개인정보 아님, 랜덤 UUID).
 async function getClientId() {

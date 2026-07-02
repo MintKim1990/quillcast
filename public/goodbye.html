@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<!-- goodbye.html — 익스텐션 제거 시 열리는 피드백 페이지 (chrome.runtime.setUninstallURL).
+     목적: 이탈 사유 수집(익명·선택). 제출 → /api/feedback → Upstash. 웹페이지라 인라인 스크립트 OK. -->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quillcast — Feedback</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+      background: #fafafa; color: #222;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px;
+    }
+    .card {
+      background: #fff; border: 1px solid #eee; border-radius: 16px;
+      max-width: 480px; width: 100%; padding: 36px 32px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.06);
+    }
+    h1 { font-size: 21px; margin-bottom: 8px; }
+    .sub { color: #777; font-size: 14px; margin-bottom: 22px; line-height: 1.5; }
+    label.opt {
+      display: flex; align-items: center; gap: 9px;
+      padding: 10px 12px; border: 1px solid #e5e5e5; border-radius: 9px;
+      margin-bottom: 8px; font-size: 14px; cursor: pointer;
+    }
+    label.opt:hover { border-color: #e53935; }
+    textarea {
+      width: 100%; min-height: 72px; margin-top: 6px; padding: 10px 12px;
+      border: 1px solid #e5e5e5; border-radius: 9px; font: inherit; font-size: 14px;
+      resize: vertical;
+    }
+    button {
+      display: block; width: 100%; margin-top: 16px; padding: 12px;
+      background: #e53935; color: #fff; border: 0; border-radius: 10px;
+      font-size: 15px; font-weight: 700; cursor: pointer;
+    }
+    button:hover { background: #d32f2f; }
+    button:disabled { background: #ccc; cursor: default; }
+    .thanks { text-align: center; padding: 30px 0 10px; font-size: 16px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="form">
+      <h1 data-i18n="title"></h1>
+      <p class="sub" data-i18n="sub"></p>
+      <div id="opts"></div>
+      <textarea id="note" maxlength="1000"></textarea>
+      <button id="send" data-i18n="send"></button>
+    </div>
+    <p class="thanks" id="thanks"></p>
+  </div>
+
+  <script>
+    const UI = (navigator.language || "").toLowerCase().startsWith("ko") ? "ko" : "en";
+    const STR = {
+      ko: {
+        title: "Quillcast를 제거하셨네요",
+        sub: "30초만 내주시면 큰 도움이 돼요 — 왜 떠나셨나요? (익명이에요)",
+        send: "보내기",
+        notePh: "자세한 사정이 있다면 편하게 적어주세요 (선택)",
+        thanks: "감사합니다. 더 나은 제품으로 보답할게요 🙏",
+        reasons: [
+          ["not_work", "제 영상에서 잘 작동하지 않았어요"],
+          ["quality", "생성된 글 품질이 아쉬웠어요"],
+          ["limit", "무료 5회가 너무 적었어요"],
+          ["no_need", "더 이상 필요하지 않아요"],
+          ["other", "기타"],
+        ],
+      },
+      en: {
+        title: "You uninstalled Quillcast",
+        sub: "30 seconds of your time would help a lot — why did you leave? (Anonymous)",
+        send: "Send",
+        notePh: "Anything else you'd like to share? (optional)",
+        thanks: "Thank you. We'll do better 🙏",
+        reasons: [
+          ["not_work", "It didn't work on my videos"],
+          ["quality", "Output quality wasn't good enough"],
+          ["limit", "5 free uses per month was too few"],
+          ["no_need", "I don't need it anymore"],
+          ["other", "Other"],
+        ],
+      },
+    }[UI];
+
+    document.documentElement.lang = UI;
+    for (const el of document.querySelectorAll("[data-i18n]"))
+      el.textContent = STR[el.dataset.i18n];
+    document.getElementById("note").placeholder = STR.notePh;
+    document.getElementById("opts").innerHTML = STR.reasons
+      .map(
+        ([v, t]) =>
+          `<label class="opt"><input type="radio" name="reason" value="${v}"> ${t}</label>`
+      )
+      .join("");
+
+    document.getElementById("send").addEventListener("click", async () => {
+      const btn = document.getElementById("send");
+      btn.disabled = true;
+      const reason =
+        document.querySelector('input[name="reason"]:checked')?.value || "";
+      const note = document.getElementById("note").value.trim();
+      try {
+        await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason, note }),
+        });
+      } catch (_) {
+        /* 수집 실패해도 사용자에겐 감사 인사 — 피드백 페이지에서 에러 보여줄 이유 없음 */
+      }
+      document.getElementById("form").style.display = "none";
+      const thanks = document.getElementById("thanks");
+      thanks.textContent = STR.thanks;
+      thanks.style.display = "block";
+    });
+  </script>
+</body>
+</html>

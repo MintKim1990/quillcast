@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!-- welcome.html — 설치 직후 1회 열리는 온보딩 페이지 (background.js onInstalled).
+     목적: 설치→첫 사용 전환. 버튼이 유튜브 영상 페이지에만 나타나므로 "어디서 시작하는지"를 알려준다.
+     언어: content.js와 동일 규칙 (브라우저 locale ko면 한국어, 그 외 영어). 외부 리소스 없음(전부 인라인). -->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quillcast — Welcome</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+      background: #fafafa; color: #222;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px;
+    }
+    .card {
+      background: #fff; border: 1px solid #eee; border-radius: 16px;
+      max-width: 520px; width: 100%; padding: 40px 36px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.06);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+    .brand img { width: 36px; height: 36px; border-radius: 8px; }
+    .brand span { font-size: 18px; font-weight: 700; }
+    h1 { font-size: 24px; margin-bottom: 6px; }
+    .sub { color: #777; font-size: 14px; margin-bottom: 28px; }
+    .step { display: flex; gap: 14px; margin-bottom: 18px; align-items: flex-start; }
+    .num {
+      flex: none; width: 26px; height: 26px; border-radius: 50%;
+      background: #e53935; color: #fff; font-size: 14px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; margin-top: 1px;
+    }
+    .step b { display: block; font-size: 15px; margin-bottom: 2px; }
+    .step p { color: #666; font-size: 13.5px; line-height: 1.5; }
+    .badge {
+      display: inline-block; background: #f5f5f5; border-radius: 6px;
+      padding: 1px 7px; font-size: 12.5px; color: #444; border: 1px solid #e5e5e5;
+    }
+    .cta {
+      display: block; text-align: center; background: #e53935; color: #fff;
+      text-decoration: none; font-weight: 700; font-size: 15px;
+      padding: 13px; border-radius: 10px; margin-top: 26px;
+    }
+    .cta:hover { background: #d32f2f; }
+    .plan { text-align: center; color: #999; font-size: 12.5px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <img src="icons/icon128.png" alt="Quillcast" />
+      <span>Quillcast</span>
+    </div>
+    <h1 data-i18n="title"></h1>
+    <p class="sub" data-i18n="sub"></p>
+
+    <div class="step">
+      <div class="num">1</div>
+      <div><b data-i18n="s1"></b><p data-i18n="s1d"></p></div>
+    </div>
+    <div class="step">
+      <div class="num">2</div>
+      <div><b data-i18n="s2"></b><p data-i18n="s2d"></p></div>
+    </div>
+    <div class="step">
+      <div class="num">3</div>
+      <div><b data-i18n="s3"></b><p data-i18n="s3d"></p></div>
+    </div>
+
+    <a class="cta" href="https://www.youtube.com" data-i18n="cta"></a>
+    <p class="plan" data-i18n="plan"></p>
+  </div>
+
+  <script src="welcome.js"></script>
+</body>
+</html>
