@@ -67,6 +67,10 @@
       planPro: "✨ Pro 이용 중",
       subscribeShort: "✨ 무제한 구독",
       manageKey: "키 관리",
+      collapse: "패널 접기",
+      expandPanel: "펼치기",
+      maximize: "크게 보기",
+      unmaximize: "원래 크기로",
     },
     en: {
       launcher: "✍️ Quillcast",
@@ -116,6 +120,10 @@
       planPro: "✨ Pro active",
       subscribeShort: "✨ Go unlimited",
       manageKey: "Manage key",
+      collapse: "Collapse panel",
+      expandPanel: "Expand panel",
+      maximize: "Maximize",
+      unmaximize: "Restore size",
     },
   }[UI];
 
@@ -141,6 +149,7 @@
   let transcriptCache = null; // { videoId, text, via, count, ok }
   const outputCache = {}; // `${videoId}:${format}:${lang}` → 생성된 텍스트 (재방문 시 LLM 재호출 안 함)
   let current = null; // { fmt, label } — ↻ 다시생성 / 언어변경용
+  let currentKey = null; // 지금 textarea에 떠 있는 출력의 캐시 키 — 사용자가 편집하면 캐시에 반영 (raw/에러는 null)
 
   const getVideoId = () => {
     try {
@@ -174,9 +183,188 @@
     const b = document.createElement("button");
     b.id = "ytr-launch";
     b.textContent = STR.launcher;
-    b.addEventListener("click", openPanel);
+    b.addEventListener("click", () => {
+      // 드래그로 옮긴 직후에 따라오는 click은 패널 열기로 치지 않는다
+      if (b.dataset.dragged === "1") return;
+      openPanel();
+    });
+    initLauncherDrag(b);
     document.body.appendChild(b);
+    restoreLauncherPos(b);
     if (discovered) scheduleCollapse();
+  }
+
+  // 런처도 드래그로 이동 가능 — 6px 이상 움직여야 드래그로 판정(그 미만은 클릭).
+  // 유튜브 하단 UI를 가릴 때 치울 수 있게. 위치는 storage에 기억.
+  function initLauncherDrag(b) {
+    let down = false, moved = false, px = 0, py = 0, ox = 0, oy = 0;
+    b.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      b.dataset.dragged = ""; // 이전 드래그 잔상 해제 (pointercancel로 click이 안 왔던 경우)
+      down = true; moved = false;
+      px = e.clientX; py = e.clientY;
+      const r = b.getBoundingClientRect();
+      ox = r.left; oy = r.top;
+    });
+    b.addEventListener("pointermove", (e) => {
+      if (!down || !(e.buttons & 1)) return;
+      if (!moved) {
+        if (Math.abs(e.clientX - px) + Math.abs(e.clientY - py) < 6) return;
+        moved = true;
+        b.dataset.dragged = "1";
+        b.style.right = "auto";
+        b.style.bottom = "auto";
+        b.setPointerCapture(e.pointerId);
+      }
+      b.style.left = Math.min(Math.max(ox + e.clientX - px, 4), innerWidth - 48) + "px";
+      b.style.top = Math.min(Math.max(oy + e.clientY - py, 4), innerHeight - 44) + "px";
+    });
+    const end = (e) => {
+      if (!down) return;
+      down = false;
+      try { b.releasePointerCapture(e.pointerId); } catch {}
+      if (moved)
+        chrome.storage.local.set({
+          quillcastLauncher: { x: b.offsetLeft, y: b.offsetTop },
+        });
+    };
+    b.addEventListener("pointerup", end);
+    b.addEventListener("pointercancel", end);
+  }
+
+  function restoreLauncherPos(b) {
+    chrome.storage.local.get("quillcastLauncher", (o) => {
+      const s = o && o.quillcastLauncher;
+      if (!s) return;
+      b.style.left = Math.min(Math.max(s.x, 4), innerWidth - 48) + "px";
+      b.style.top = Math.min(Math.max(s.y, 4), innerHeight - 44) + "px";
+      b.style.right = "auto";
+      b.style.bottom = "auto";
+    });
+  }
+
+  // ── 패널 위치/크기 기억 ───────────────────────────────────────────────
+  // moved/sized 플래그가 없으면 기본 앵커(우하단 fixed)를 유지해 창 크기가
+  // 바뀌어도 구석에 붙어 있게 하고, 사용자가 옮기거나 늘린 뒤에만 좌표를 고정한다.
+  function savePanelState(panel) {
+    chrome.storage.local.set({
+      quillcastPanel: {
+        x: panel.offsetLeft,
+        y: panel.offsetTop,
+        w: panel.offsetWidth,
+        h: panel.offsetHeight,
+        moved: panel.dataset.moved === "1",
+        sized: panel.dataset.sized === "1",
+      },
+    });
+  }
+
+  function restorePanelState(panel) {
+    chrome.storage.local.get("quillcastPanel", (o) => {
+      const s = o && o.quillcastPanel;
+      if (!s) return;
+      if (s.sized) {
+        panel.dataset.sized = "1";
+        if (s.w) panel.style.width = Math.min(s.w, innerWidth * 0.95) + "px";
+        if (s.h) panel.style.height = Math.min(s.h, innerHeight * 0.9) + "px";
+      }
+      if (s.moved) {
+        panel.dataset.moved = "1";
+        // 모니터/창 크기가 달라졌어도 헤더는 항상 잡을 수 있게 클램프
+        panel.style.left =
+          Math.min(Math.max(s.x, 80 - panel.offsetWidth), innerWidth - 80) + "px";
+        panel.style.top = Math.min(Math.max(s.y, 0), innerHeight - 48) + "px";
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+      }
+    });
+  }
+
+  const PANEL_MIN_W = 320, PANEL_MIN_H = 200; // panel.css의 min-width/min-height와 동일
+
+  function initPanelInteractions(panel, bar) {
+    // 드래그 이동 — 헤더가 핸들. 버튼/셀렉트 클릭은 드래그로 취급하지 않는다.
+    let dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
+    bar.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button, select, input")) return;
+      if (panel.classList.contains("ytr-max")) return; // 확대 모드는 중앙 고정
+      // 텍스트 선택·네이티브 드래그 차단 — 이게 끼어들면 pointerup 대신
+      // pointercancel이 와서 드래그 상태가 안 풀린다(유령 드래그).
+      e.preventDefault();
+      const r = panel.getBoundingClientRect();
+      // 우하단 앵커 → 좌상단 좌표로 전환해야 드래그 중 크기 흔들림이 없다
+      panel.style.left = r.left + "px";
+      panel.style.top = r.top + "px";
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      sx = e.clientX; sy = e.clientY; sl = r.left; st = r.top;
+      dragging = true;
+      bar.setPointerCapture(e.pointerId);
+    });
+    bar.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      if (!(e.buttons & 1)) { dragging = false; return; } // 버튼 안 눌린 move = 유령 드래그 차단
+      const w = panel.offsetWidth;
+      panel.style.left =
+        Math.min(Math.max(sl + e.clientX - sx, 80 - w), innerWidth - 80) + "px";
+      panel.style.top =
+        Math.min(Math.max(st + e.clientY - sy, 0), innerHeight - 48) + "px";
+    });
+    const endDrag = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { bar.releasePointerCapture(e.pointerId); } catch {}
+      panel.dataset.moved = "1";
+      savePanelState(panel);
+    };
+    bar.addEventListener("pointerup", endDrag);
+    bar.addEventListener("pointercancel", endDrag);
+
+    // 크기 조절 — 4변 + 4모서리 핸들. 잡은 변의 반대쪽을 고정하고 늘인다.
+    for (const dir of ["n", "s", "e", "w", "ne", "nw", "se", "sw"]) {
+      const grip = document.createElement("div");
+      grip.className = "ytr-rs ytr-rs-" + dir;
+      grip.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const r = panel.getBoundingClientRect();
+        panel.style.left = r.left + "px";
+        panel.style.top = r.top + "px";
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+        const gx = e.clientX, gy = e.clientY;
+        const g = { l: r.left, t: r.top, w: r.width, h: r.height };
+        const move = (ev) => {
+          if (!(ev.buttons & 1)) return end(ev);
+          let w2 = g.w, h2 = g.h;
+          // 늘어나는 쪽이 화면 밖으로 8px 이상 못 나가게 방향별로 클램프
+          if (dir.includes("e")) w2 = Math.min(g.w + ev.clientX - gx, innerWidth - g.l - 8);
+          if (dir.includes("w")) w2 = Math.min(g.w - (ev.clientX - gx), g.l + g.w - 8);
+          if (dir.includes("s")) h2 = Math.min(g.h + ev.clientY - gy, innerHeight - g.t - 8);
+          if (dir.includes("n")) h2 = Math.min(g.h - (ev.clientY - gy), g.t + g.h - 8);
+          w2 = Math.max(w2, PANEL_MIN_W);
+          h2 = Math.max(h2, PANEL_MIN_H);
+          if (dir.includes("w")) panel.style.left = g.l + g.w - w2 + "px";
+          if (dir.includes("n")) panel.style.top = g.t + g.h - h2 + "px";
+          panel.style.width = w2 + "px";
+          panel.style.height = h2 + "px";
+        };
+        const end = (ev) => {
+          grip.removeEventListener("pointermove", move);
+          grip.removeEventListener("pointerup", end);
+          grip.removeEventListener("pointercancel", end);
+          try { grip.releasePointerCapture(ev.pointerId); } catch {}
+          panel.dataset.sized = "1";
+          panel.dataset.moved = "1"; // 좌상단 앵커로 전환됐으니 위치도 함께 기억
+          savePanelState(panel);
+        };
+        grip.addEventListener("pointermove", move);
+        grip.addEventListener("pointerup", end);
+        grip.addEventListener("pointercancel", end);
+        grip.setPointerCapture(e.pointerId);
+      });
+      panel.appendChild(grip);
+    }
   }
 
   // ── 패널 (헤더 + 포맷바 + 상태줄 + 결과) ──────────────────────────────
@@ -212,11 +400,33 @@
       if (current && current.fmt !== "raw")
         runFormat(current.fmt, current.label, true);
     };
+    const minBtn = document.createElement("button");
+    minBtn.id = "ytr-min";
+    minBtn.textContent = "–";
+    minBtn.title = STR.collapse;
+    minBtn.onclick = () => {
+      panel.classList.remove("ytr-max");
+      maxBtn.title = STR.maximize;
+      const collapsed = panel.classList.toggle("ytr-collapsed");
+      minBtn.textContent = collapsed ? "▣" : "–";
+      minBtn.title = collapsed ? STR.expandPanel : STR.collapse;
+    };
+    const maxBtn = document.createElement("button");
+    maxBtn.id = "ytr-max";
+    maxBtn.textContent = "⛶";
+    maxBtn.title = STR.maximize;
+    maxBtn.onclick = () => {
+      panel.classList.remove("ytr-collapsed");
+      minBtn.textContent = "–";
+      minBtn.title = STR.collapse;
+      const maxed = panel.classList.toggle("ytr-max");
+      maxBtn.title = maxed ? STR.unmaximize : STR.maximize;
+    };
     const close = document.createElement("button");
     close.id = "ytr-close";
     close.textContent = "✕";
     close.onclick = () => panel.remove();
-    bar.append(title, regen, copy, close);
+    bar.append(title, regen, copy, minBtn, maxBtn, close);
 
     // 포맷 선택 바
     const fmts = document.createElement("div");
@@ -254,14 +464,18 @@
     status.id = "ytr-status";
     status.style.display = "none";
 
-    // 결과
+    // 결과 — 편집 가능. 고친 내용은 캐시에도 반영돼 포맷을 오가도 유지된다.
     const ta = document.createElement("textarea");
     ta.id = "ytr-text";
-    ta.readOnly = true;
     ta.placeholder = STR.placeholder;
+    ta.addEventListener("input", () => {
+      if (currentKey) outputCache[currentKey] = ta.value;
+    });
 
     panel.append(bar, fmts, status, ta, buildProPanel(), buildPlanBar());
     document.body.appendChild(panel);
+    initPanelInteractions(panel, bar);
+    restorePanelState(panel);
     return panel;
   }
 
@@ -389,8 +603,9 @@
   function buildPlanBar() {
     const bar = document.createElement("div");
     bar.id = "ytr-plan";
+    // padding 오른쪽 20px = 패널 우하단 리사이즈 그립과 버튼이 겹치지 않게
     bar.style.cssText =
-      "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-top:1px solid rgba(0,0,0,.12);font-size:12px;";
+      "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 20px 6px 10px;border-top:1px solid rgba(0,0,0,.12);font-size:12px;";
     const label = document.createElement("span");
     label.id = "ytr-plan-label";
     const btn = document.createElement("button");
@@ -427,6 +642,7 @@
     openPanel();
     setActive(fmt);
     current = { fmt, label };
+    currentKey = null; // 성공적으로 출력이 뜰 때만 다시 세팅 (편집 동기화 대상 지정)
     setBusy(true);
     const ta = document.getElementById("ytr-text");
     try {
@@ -453,6 +669,7 @@
       const cacheKey = `${t.videoId}:${fmt}:${lang}`;
       if (!force && outputCache[cacheKey]) {
         ta.value = outputCache[cacheKey];
+        currentKey = cacheKey;
         setStatus(STR.cached(label), false);
         return;
       }
@@ -469,6 +686,7 @@
       }
       outputCache[cacheKey] = resp.text;
       ta.value = resp.text;
+      currentKey = cacheKey;
       setStatus(STR.done(label, t.text.length, resp.text.length), false);
     } finally {
       setBusy(false);

@@ -17,6 +17,7 @@
   white-space: nowrap;
   overflow: hidden;
   max-width: 200px;
+  touch-action: none; /* 런처 드래그 이동용 */
   transition: max-width 0.25s ease, padding 0.25s ease, opacity 0.25s ease,
     border-radius 0.25s ease;
 }
@@ -36,14 +37,18 @@
   opacity: 1;
 }
 
-/* 패널 */
+/* 패널 — 헤더 드래그로 이동, 우하단 그립으로 크기 조절(v1.0.3) */
 #ytr-panel {
   position: fixed;
   bottom: 70px;
   right: 20px;
   z-index: 99999;
   width: 420px;
-  max-height: 72vh;
+  height: min(440px, 72vh);
+  min-width: 320px;
+  min-height: 200px;
+  max-width: 95vw;
+  max-height: 90vh;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 10px;
@@ -52,8 +57,45 @@
   flex-direction: column;
   overflow: hidden;
 }
+/* 접기: 헤더만 남긴다 (인라인 height보다 우선해야 해서 !important) */
+#ytr-panel.ytr-collapsed > :not(#ytr-bar) {
+  display: none !important;
+}
+#ytr-panel.ytr-collapsed {
+  height: auto !important;
+  min-height: 0;
+}
+/* 크게 보기: 화면 중앙 대형 — 긴 결과물 편집용 */
+#ytr-panel.ytr-max {
+  left: 50% !important;
+  top: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: translate(-50%, -50%);
+  width: min(920px, 94vw) !important;
+  height: min(900px, 88vh) !important;
+}
 
-/* 헤더 */
+/* 크기조절 핸들 — 4변 + 4모서리 (패널 테두리 안쪽 투명 띠) */
+.ytr-rs {
+  position: absolute;
+  z-index: 6;
+}
+.ytr-rs-n  { top: 0;    left: 14px; right: 14px; height: 6px; cursor: ns-resize; }
+.ytr-rs-s  { bottom: 0; left: 14px; right: 14px; height: 6px; cursor: ns-resize; }
+.ytr-rs-e  { right: 0;  top: 14px; bottom: 14px; width: 6px;  cursor: ew-resize; }
+.ytr-rs-w  { left: 0;   top: 14px; bottom: 14px; width: 6px;  cursor: ew-resize; }
+.ytr-rs-ne { top: 0;    right: 0;  width: 14px; height: 14px; cursor: nesw-resize; }
+.ytr-rs-nw { top: 0;    left: 0;   width: 14px; height: 14px; cursor: nwse-resize; }
+.ytr-rs-se { bottom: 0; right: 0;  width: 14px; height: 14px; cursor: nwse-resize; }
+.ytr-rs-sw { bottom: 0; left: 0;   width: 14px; height: 14px; cursor: nesw-resize; }
+/* 접힘/확대 상태에선 크기조절 비활성 */
+#ytr-panel.ytr-collapsed .ytr-rs,
+#ytr-panel.ytr-max .ytr-rs {
+  display: none;
+}
+
+/* 헤더 = 드래그 핸들 */
 #ytr-bar {
   display: flex;
   align-items: center;
@@ -61,6 +103,9 @@
   padding: 8px 10px;
   background: #f4f4f4;
   border-bottom: 1px solid #e0e0e0;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
 }
 #ytr-title {
   flex: 1;
@@ -70,6 +115,8 @@
 }
 #ytr-copy,
 #ytr-regen,
+#ytr-min,
+#ytr-max,
 #ytr-close {
   border: 1px solid #ccc;
   background: #fff;
@@ -79,10 +126,13 @@
   cursor: pointer;
   color: #111;
 }
+#ytr-min,
+#ytr-max,
 #ytr-close {
   border: none;
   font-size: 14px;
   padding: 4px 6px;
+  background: transparent;
 }
 
 /* 포맷 선택 바 */
@@ -160,11 +210,11 @@
   }
 }
 
-/* 결과 */
+/* 결과 — 편집 가능. 패널 크기를 따라 늘어난다 */
 #ytr-text {
   flex: 1;
   width: 100%;
-  min-height: 300px;
+  min-height: 80px;
   box-sizing: border-box;
   border: none;
   resize: none;
